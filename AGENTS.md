@@ -1,5 +1,20 @@
 # dart_simple_live — Project Context
 
+## ⚠️ 不可忘记的规则（每次对话必须先看）
+
+### 抖音子窗口
+- **抖音 URL 永远不让主进程解析传给子进程** → 必黑屏。子进程自己调 `DouyinSite().getRoomDetail/getPlayQualites/getPlayUrls`
+- **子进程内 `Player()` 必须加 `configuration: PlayerConfiguration(title: ..., logLevel: MPVLogLevel.error)`**，裸 `Player()` 抖音黑屏
+- **`_openMiniWindow()` 抖音分支必须用 `Sites.allSites` 单例**（保留用户 cookie），不能 `new DouyinSite()`
+
+### 子进程卡死
+- **子进程 `Process.start` 必须加 `mode: ProcessStartMode.detached`**，否则 stdout 管道写满 4KB 死锁
+- **`main.dart` 子进程入口加 `CoreLog.enableLog = false`**（双重保险）
+
+### 构建
+- 构建前设置 `$env:FLUTTER_VS_INSTALL_PATH` 和 `$env:FLUTTER_VS_MSVC_VERSION`
+- Flutter SDK patches 在 `D:\flutter`（`flutter upgrade` 会覆盖）
+
 ## Project Overview
 - 聚合直播平台 (Bilibili, 斗鱼, 虎牙, 抖音等) 的 Flutter 桌面端
 - 两个入口: `simple_live_app/` (Flutter GUI) + `simple_live_console/` (CLI)
