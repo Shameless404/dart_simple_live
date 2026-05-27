@@ -15,3 +15,7 @@
 📥 [下载 v0.0.1](https://github.com/Shameless404/dart_simple_live/releases/download/v0.0.1/simple_live_v0.0.1_windows-x64.zip)（解压即用，无需编译）
 
 支持平台：虎牙 · 斗鱼 · B站 · 抖音
+
+---
+
+⭐ Star this project if you find it useful! 🎉
