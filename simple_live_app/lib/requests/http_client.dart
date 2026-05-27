@@ -186,7 +186,8 @@ class HttpClient {
       return result;
     } catch (e) {
       if (e is DioException && e.type == DioExceptionType.badResponse) {
-        return e.response ?? throw HttpError("服务器无响应");
+        if (e.response == null) throw HttpError("服务器无响应");
+        return e.response!;
       } else {
         throw HttpError("发送HEAD请求失败");
       }
