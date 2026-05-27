@@ -263,7 +263,6 @@ class DouyinSite implements LiveSite {
 
     // 读取用户唯一ID，用于弹幕连接
     // 似乎这个参数不是必须的，先随机生成一个
-    //var userUniqueId = await _getUserUniqueId(webRid);
     var userUniqueId = generateRandomNumber(12).toString();
 
     var room = roomData["data"]["room"];
@@ -331,7 +330,6 @@ class DouyinSite implements LiveSite {
 
     // 读取用户唯一ID，用于弹幕连接
     // 似乎这个参数不是必须的，先随机生成一个
-    //var userUniqueId = await _getUserUniqueId(webRid);
     var userUniqueId = generateRandomNumber(12).toString();
 
     var owner = roomData["owner"];
@@ -620,9 +618,6 @@ class DouyinSite implements LiveSite {
       CoreLog.error(e);
       CoreLog.error(stackTrace);
     }
-    // var qualityData = json.decode(
-    //     detail.data["live_core_sdk_data"]["pull_data"]["stream_data"])["data"];
-
     qualities.sort((a, b) => b.sort.compareTo(a.sort));
     _logDebug("获取到的画质列表: ${qualities.map((q) => q.quality).toList()}");
     return qualities;
@@ -682,7 +677,6 @@ class DouyinSite implements LiveSite {
         "webid": "7382872326016435738",
       },
     );
-    //var requlestUrl = await getAbogusUrl(uri.toString());
     var requlestUrl = uri.toString();
     var headResp = await HttpClient.instance.head(
       'https://live.douyin.com',

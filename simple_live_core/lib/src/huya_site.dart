@@ -148,42 +148,7 @@ class HuyaSite implements LiveSite {
         HuyaBitRateModel(name: "高清", bitRate: 2000),
       ];
     }
-    // if (urlData.lines.isEmpty) {
-    //   urlData.lines = [
-    //     HuyaLineModel(line: "tx.flv.huya.com", lineType: HuyaLineType.flv,),
-    //     HuyaLineModel(line: "bd.flv.huya.com", lineType: HuyaLineType.flv),
-    //     HuyaLineModel(line: "al.flv.huya.com", lineType: HuyaLineType.flv),
-    //     HuyaLineModel(line: "hw.flv.huya.com", lineType: HuyaLineType.flv),
-    //   ];
-    // }
-    //var url = getRealUrl(urlData.url);
-
     for (var item in urlData.bitRates) {
-      // var urls = <String>[];
-      // for (var line in urlData.lines) {
-      //   var src = line.line;
-      //   src += "/${line.streamName}";
-      //   if (line.lineType == HuyaLineType.flv) {
-      //     //src = src.replaceAll(".m3u8", ".flv");
-      //     src += ".flv";
-      //   }
-      //   if (line.lineType == HuyaLineType.hls) {
-      //     src += ".m3u8";
-      //   }
-      //   var parms = processAnticode(
-      //     line.lineType == HuyaLineType.flv
-      //         ? line.flvAntiCode
-      //         : line.hlsAntiCode,
-      //     urlData.uid,
-      //     line.streamName,
-      //   );
-      //   src += "?$parms";
-      //   if (item.bitRate > 0) {
-      //     src += "&ratio=${item.bitRate}";
-      //   }
-      //   urls.add(src);
-      // }
-
       qualities.add(LivePlayQuality(
         data: {
           "urls": urlData.lines,
@@ -591,39 +556,6 @@ class HuyaSite implements LiveSite {
     }
     return o.join("");
   }
-
-  // String getRealUrl(String e) {
-  //   //https://github.com/wbt5/real-url/blob/master/huya.py
-  //   //使用ChatGPT转换的Dart代码,ChatGPT真好用
-  //   List<String> iAndB = e.split('?');
-  //   String i = iAndB[0];
-  //   String b = iAndB[1];
-  //   List<String> r = i.split('/');
-  //   String s = r[r.length - 1].replaceAll(RegExp(r'.(flv|m3u8)'), '');
-  //   List<String> bs = b.split('&');
-  //   List<String> c = [];
-  //   c.addAll(bs.take(3));
-  //   c.add(bs.skip(3).join("&"));
-  //   Map<String, String> n = {};
-  //   for (var str in c) {
-  //     List<String> keyValue = str.split('=');
-  //     n[keyValue[0]] = keyValue[1];
-  //   }
-  //   String fm = Uri.decodeFull(n['fm'] ?? "").split("&")[0];
-  //   String u = utf8.decode(base64Decode(fm));
-  //   String p = u.split('_')[0];
-  //   String f = (DateTime.now().millisecondsSinceEpoch * 1000).toString();
-  //   String l = n['wsTime'] ?? "";
-  //   String t = '0';
-  //   String h = [p, t, s, f, l].join("_");
-  //   String m = md5.convert(utf8.encode(h)).toString();
-  //   String y = c[c.length - 1];
-  //   String url = "$i?wsSecret=$m&wsTime=$l&u=$t&seqid=$f&$y";
-  //   url = url.replaceAll("&ctype=tars_mobile", "");
-  //   url = url.replaceAll(RegExp(r"ratio=\d+&"), "");
-  //   url = url.replaceAll(RegExp(r"imgplus_\d+"), "imgplus");
-  //   return url;
-  // }
 
   String processAnticode(String anticode, String uid, String streamname) {
     // 来源：https://github.com/iceking2nd/real-url/blob/master/huya.py

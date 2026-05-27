@@ -151,7 +151,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         httpHeaders: playUrl.headers,
       ));
       await player.play();
-    } catch (_) {}
+    } catch (e) { debugPrint('MiniPlayer: _resolveDouyinAndPlay error: $e'); }
   }
 
   Future<void> _connectDanmaku() async {
@@ -205,7 +205,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           break;
         }
       }
-    } catch (_) {}
+    } catch (e) { debugPrint('MiniPlayer: _connectDanmaku error: $e'); }
   }
 
   void _setupDanmakuHandlers() {

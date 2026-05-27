@@ -23,9 +23,6 @@ class AppSearchController extends GetxController
       }
 
       index = currentIndex;
-      // if (Sites.supportSites[index].id == Constant.kDouyin) {
-      //   return;
-      // }
 
       var controller =
           Get.find<SearchListController>(tag: Sites.supportSites[index].id);
@@ -45,14 +42,10 @@ class AppSearchController extends GetxController
   @override
   void onInit() {
     for (var site in Sites.supportSites) {
-      // if (site.id == Constant.kDouyin) {
-      //   Get.put(DouyinSearchController(site));
-      // } else {
       Get.put(
         SearchListController(site),
         tag: site.id,
       );
-      //}
     }
 
     super.onInit();
@@ -63,23 +56,14 @@ class AppSearchController extends GetxController
       return;
     }
     for (var site in Sites.supportSites) {
-      // if (site.id == Constant.kDouyin) {
-      //   var controller = Get.find<DouyinSearchController>();
-      //   controller.keyword = searchController.text;
-      //   controller.searchMode.value = searchMode.value;
-      //   controller.reloadWebView();
-      // } else {
       var controller = Get.find<SearchListController>(tag: site.id);
       controller.clear();
       controller.keyword = searchController.text;
       controller.searchMode.value = searchMode.value;
-      //}
     }
-    // if (Sites.supportSites[index].id != Constant.kDouyin) {
     var controller =
         Get.find<SearchListController>(tag: Sites.supportSites[index].id);
     controller.refreshData();
-    //}
   }
 
   @override

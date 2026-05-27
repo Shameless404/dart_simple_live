@@ -203,7 +203,8 @@ class OtherSettingsController extends BaseController {
       if (file == null) {
         return;
       }
-      var filePath = file.files.single.path!;
+      var filePath = file.files.single.path;
+      if (filePath == null) { SmartDialog.showToast("文件路径无效"); return; }
       var data = jsonDecode(await File(filePath).readAsString());
       if (data["type"] != "simple_live") {
         SmartDialog.showToast("不支持的配置文件");

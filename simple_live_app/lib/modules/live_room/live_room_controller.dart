@@ -156,7 +156,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         opacity: AppSettingsController.instance.danmuOpacity.value,
         fontWeight: AppSettingsController.instance.danmuFontWeight.value,
       ));
-    } catch (_) {}
+    } catch (e) { Log.logPrint(e); }
   }
 
   /// 初始化自动关闭倒计时
@@ -362,9 +362,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       startLiveDurationTimer(); // 启动开播时长定时器
     } catch (e) {
       Log.logPrint(e);
-      //SmartDialog.showToast(e.toString());
       loadError.value = true;
       error = e as Error;
+      update();
+      return;
     } finally {
       SmartDialog.dismiss(status: SmartStatus.loading);
     }

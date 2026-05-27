@@ -192,17 +192,6 @@ mixin PlayerDanmakuMixin on PlayerStateMixin {
 
   void initDanmakuController(DanmakuController e) {
     danmakuController = e;
-    // danmakuController?.updateOption(
-    //   DanmakuOption(
-    //     fontSize: AppSettingsController.instance.danmuSize.value,
-    //     area: AppSettingsController.instance.danmuArea.value,
-    //     duration: AppSettingsController.instance.danmuSpeed.value,
-    //     opacity: AppSettingsController.instance.danmuOpacity.value,
-    //     strokeWidth: AppSettingsController.instance.danmuStrokeWidth.value,
-    //     fontWeight: FontWeight
-    //         .values[AppSettingsController.instance.danmuFontWeight.value],
-    //   ),
-    // );
   }
 
   void updateDanmuOption(DanmakuOption? option) {
@@ -228,8 +217,6 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
 
   final pip = Floating();
   StreamSubscription<PiPStatus>? _pipSubscription;
-
-  //final VolumeController volumeController = VolumeController();
 
   /// 初始化一些系统状态
   void initSystem() async {
@@ -563,9 +550,6 @@ mixin PlayerGestureControlMixin
     if (!Platform.isAndroid && !Platform.isIOS) {
       return;
     }
-    //String text = "";
-    //double value = 0.0;
-
     Log.logPrint("$verStartPosition/${e.globalPosition.dy}");
 
     if (leftVerticalDrag) {

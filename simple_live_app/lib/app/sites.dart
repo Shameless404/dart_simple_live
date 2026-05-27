@@ -32,7 +32,7 @@ class Sites {
 
   static List<Site> get supportSites {
     return AppSettingsController.instance.siteSort
-        .map((key) => allSites[key]!)
+        .map((key) => allSites[key] ?? (throw Exception("未知站点: $key")))
         .toList();
   }
 }

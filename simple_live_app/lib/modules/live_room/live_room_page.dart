@@ -988,7 +988,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) { Log.logPrint(e); }
 
     var settings = AppSettingsController.instance;
     var args = MiniPlayerArguments(

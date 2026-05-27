@@ -49,7 +49,8 @@ class SyncService extends GetxService {
   /// 监听其他端UDP广播的回复
   void listenUDP() async {
     udp = await UDP.bind(Endpoint.any(port: const Port(udpPort)));
-    udp!.asStream().listen(listenUdp);
+    final u = udp;
+    if (u != null) u.asStream().listen(listenUdp);
   }
 
   void listenUdp(Datagram? datagram) {
@@ -91,6 +92,7 @@ class SyncService extends GetxService {
 
   /// 发送UDP广播至其他端
   void sendHello() async {
+    if (udp == null) return;
     await udp!.send(
       json.encode({
         "id": deviceId,
@@ -105,19 +107,15 @@ class SyncService extends GetxService {
 
   /// UDP广播自身信息
   void sendInfo() async {
-    //var ip = await getLocalIP();
-
     var name = await getDeviceName();
 
     var data = {
       "id": deviceId,
       "type": Platform.operatingSystem,
-      //'version': Utils.packageInfo.version,
       "name": name,
-      //"address": ip,
-      //"port": httpPort,
     };
 
+    if (udp == null) return;
     await udp!.send(
       json.encode(data).codeUnits,
       Endpoint.broadcast(

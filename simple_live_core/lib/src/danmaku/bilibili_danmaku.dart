@@ -49,8 +49,6 @@ class BiliBiliDanmaku implements LiveDanmaku {
   @override
   Function()? onReady;
 
-  //String serverUrl = "wss://broadcastlv.chat.bilibili.com/sub";
-
   WebScoketUtils? webScoketUtils;
   late BiliBiliDanmakuArgs danmakuArgs;
   @override

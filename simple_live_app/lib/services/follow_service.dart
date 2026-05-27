@@ -303,7 +303,9 @@ class FollowService extends GetxService {
       if (file == null) {
         return;
       }
-      var jsonFile = File(file.files.single.path!);
+      var path = file.files.single.path;
+      if (path == null) { SmartDialog.showToast("文件路径无效"); return; }
+      var jsonFile = File(path);
       await inputJson(await jsonFile.readAsString());
       SmartDialog.showToast("导入成功");
     } catch (e) {

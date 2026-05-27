@@ -53,16 +53,18 @@ class SignalRService {
   HubConnection? hubConnection;
   Future<void> connect() async {
     hubConnection = HubConnectionBuilder().withUrl(kUrl).build();
-    hubConnection!.onclose(({Exception? error}) {
+    final hc = hubConnection;
+    if (hc == null) return;
+    hc.onclose(({Exception? error}) {
       state = SignalRConnectionState.disconnected;
       _stateStreamController.add(state);
     });
-    hubConnection!.onreconnected(({String? connectionId}) {
+    hc.onreconnected(({String? connectionId}) {
       Log.d("reconnected: $connectionId");
       state = SignalRConnectionState.connected;
       _stateStreamController.add(state);
     });
-    await hubConnection!.start();
+    await hc.start();
     state = SignalRConnectionState.connected;
     _stateStreamController.add(state);
     _listen();
