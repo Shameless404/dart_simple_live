@@ -226,23 +226,6 @@ var setCookieHeaders = result.headers["set-cookie"];
 - `_openMiniWindow()` 中抖音分支误用 `new DouyinSite()` → 没用户 cookie
 - **修复：** 用 `Sites.allSites[Constant.kDouyin]!.liveSite` 单例，保留 `DouyinAccountService` 设的 cookie
 
-### 完整的修复步骤
-
-1. **`mini_player_window.dart`:**
-   - `Player()` 加 `configuration: const PlayerConfiguration(title: 'Simple Live Player', logLevel: MPVLogLevel.error)`
-   - 加 `_resolveDouyinAndPlay()`：子进程内 `new DouyinSite()` → `getRoomDetail()` → `getPlayQualites()` → `getPlayUrls()` → `player.open(Media(url))`
-   - `_play()` 中加 `streamUrl.isEmpty && siteId == 'douyin'` 分支
-
-2. **`live_room_page.dart` `_openMiniWindow()`:**
-   - 抖音走独立分支：`Sites.allSites` 单例（非 `new`）调 `getRoomDetail()` 只取 `danmakuJson`，`streamUrl` 留空
-   - 其他平台保持主进程解析
-
-3. **`live_room_page.dart` `Process.start`:**
-   - 加 `mode: ProcessStartMode.detached`
-
-4. **`main.dart`:**
-   - 子进程入口加 `CoreLog.enableLog = false`
-
 ### 教训
 - 抖音 URL **永远不能让主进程解析传到子进程** → 必黑屏
 - 子进程只要做 HTTP 请求（Dio），就必须防管道死锁
@@ -288,6 +271,12 @@ var setCookieHeaders = result.headers["set-cookie"];
 1. 删 `simple_live_app/build/`（重建即可）
 2. 删 `D:\simple_live\` 下所有文件（重建输出）
 3. 删 `simple_live_core/packages/dart_quickjs/`（需要重新 git clone）
+
+## GitHub Repository
+- **GitHub 用户:** https://github.com/Shameless404
+- **远程仓库:** https://github.com/Shameless404/dart_simple_live.git
+- **默认分支:** master
+- **注意:** GitHub Personal Access Token 需要 `workflow` 权限才能推送 `.github/workflows/` 下的文件。✅ 已解决。
 
 ## SDK Constraints
 - Dart SDK constraint: `>=3.0.5 <4.0.0` (app), `>=3.10.0` (core)
