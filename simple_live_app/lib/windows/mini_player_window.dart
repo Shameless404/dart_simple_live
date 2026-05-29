@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -87,6 +86,8 @@ class MiniPlayerApp extends StatelessWidget {
   }
 }
 
+Player? globalMiniPlayer;
+
 class MiniPlayerPage extends StatefulWidget {
   final MiniPlayerArguments args;
   const MiniPlayerPage({super.key, required this.args});
@@ -110,6 +111,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         logLevel: MPVLogLevel.error,
       ),
     );
+    globalMiniPlayer = player;
     videoController = VideoController(player);
     WidgetsBinding.instance.addPostFrameCallback((_) => _play());
     WidgetsBinding.instance.addPostFrameCallback((_) => _connectDanmaku());
@@ -117,11 +119,10 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   @override
   void dispose() {
+    globalMiniPlayer = null;
     liveDanmaku?.stop();
     player.dispose();
     super.dispose();
-    // 强制终止进程，防止 Flutter 引擎 native 回调残留导致 hardError
-    Future.delayed(const Duration(milliseconds: 50), () => exit(0));
   }
 
   Future<void> _play() async {

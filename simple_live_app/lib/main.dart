@@ -54,6 +54,9 @@ void main() async {
     // For mini-player process: no Hive, no services, just the player
     CoreLog.enableLog = false;
     MediaKit.ensureInitialized();
+    await windowManager.ensureInitialized();
+    await windowManager.setPreventClose(true);
+    windowManager.addListener(_MiniWindowCloseHandler());
     runApp(MiniPlayerApp(args: args));
     return;
   }
@@ -147,6 +150,18 @@ class _MainWindowCloseHandler extends WindowListener {
         await Get.deleteAll(force: true);
       } catch (e) { Log.logPrint(e); }
       // 强制销毁窗口，跳过 Flutter 引擎的正常关闭序列，防止 hardError
+      await windowManager.setPreventClose(false);
+      await windowManager.destroy();
+    });
+  }
+}
+
+class _MiniWindowCloseHandler extends WindowListener {
+  @override
+  void onWindowClose() {
+    Future(() async {
+      await globalMiniPlayer?.dispose();
+      globalMiniPlayer = null;
       await windowManager.setPreventClose(false);
       await windowManager.destroy();
     });
