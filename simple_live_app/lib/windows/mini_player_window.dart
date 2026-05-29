@@ -4,6 +4,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:simple_live_core/simple_live_core.dart';
+import 'package:window_manager/window_manager.dart';
 
 class MiniPlayerArguments {
   final String siteId;
@@ -65,7 +66,7 @@ class MiniPlayerArguments {
         danmuSpeed: (json['danmuSpeed'] as num?)?.toDouble() ?? 8,
         danmuArea: (json['danmuArea'] as num?)?.toDouble() ?? 0.3,
         danmuOpacity: (json['danmuOpacity'] as num?)?.toDouble() ?? 0.8,
-        danmuFontWeight: json['danmuFontWeight'] as int? ?? 400,
+        danmuFontWeight: (json['danmuFontWeight'] as int? ?? 4).clamp(0, 8),
         danmuStrokeWidth: (json['danmuStrokeWidth'] as num?)?.toDouble() ?? 0,
         danmakuSite: json['danmakuSite'] as String? ?? '',
         danmakuJson: json['danmakuJson'] as String? ?? '',
@@ -88,6 +89,41 @@ class MiniPlayerApp extends StatelessWidget {
 
 Player? globalMiniPlayer;
 
+class _PinToggleButton extends StatefulWidget {
+  const _PinToggleButton();
+
+  @override
+  State<_PinToggleButton> createState() => _PinToggleButtonState();
+}
+
+class _PinToggleButtonState extends State<_PinToggleButton> {
+  bool _isPinned = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        final newValue = !_isPinned;
+        await windowManager.setAlwaysOnTop(newValue);
+        if (mounted) setState(() => _isPinned = newValue);
+      },
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          Icons.push_pin,
+          color: _isPinned ? Colors.amber : Colors.white70,
+          size: 20,
+        ),
+      ),
+    );
+  }
+}
+
 class MiniPlayerPage extends StatefulWidget {
   final MiniPlayerArguments args;
   const MiniPlayerPage({super.key, required this.args});
@@ -101,10 +137,17 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   late final VideoController videoController;
   DanmakuController? danmakuController;
   LiveDanmaku? liveDanmaku;
+  bool _danmakuVisible = false;
+  bool _controlsVisible = false;
+  bool _isPlaying = false;
+  double _volume = 100;
+  bool _isFullscreen = false;
+  late double _danmuSize;
 
   @override
   void initState() {
     super.initState();
+    _danmuSize = widget.args.danmuSize;
     player = Player(
       configuration: const PlayerConfiguration(
         title: 'Simple Live Player',
@@ -113,8 +156,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     );
     globalMiniPlayer = player;
     videoController = VideoController(player);
+    _volume = player.state.volume;
     WidgetsBinding.instance.addPostFrameCallback((_) => _play());
-    WidgetsBinding.instance.addPostFrameCallback((_) => _connectDanmaku());
   }
 
   @override
@@ -133,9 +176,10 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         httpHeaders: widget.args.streamHeaders,
       ));
       await player.play();
+      _isPlaying = true;
+      if (mounted) setState(() {});
       return;
     }
-    // Douyin: resolve stream URL in sub-process (fresher, avoids black screen)
     if (widget.args.siteId == 'douyin') {
       await _resolveDouyinAndPlay();
     }
@@ -155,6 +199,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         httpHeaders: playUrl.headers,
       ));
       await player.play();
+      _isPlaying = true;
+      if (mounted) setState(() {});
     } catch (e) { debugPrint('MiniPlayer: _resolveDouyinAndPlay error: $e'); }
   }
 
@@ -226,28 +272,193 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     };
   }
 
+  void _toggleDanmaku() {
+    if (liveDanmaku != null) {
+      liveDanmaku!.stop();
+      liveDanmaku = null;
+      danmakuController = null;
+      setState(() => _danmakuVisible = false);
+    } else {
+      setState(() => _danmakuVisible = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _danmakuVisible) _connectDanmaku();
+      });
+    }
+  }
+
+  void _togglePlayPause() {
+    if (_isPlaying) {
+      player.pause();
+      setState(() => _isPlaying = false);
+    } else {
+      player.play();
+      setState(() => _isPlaying = true);
+    }
+  }
+
+  void _toggleFullscreen() {
+    _isFullscreen = !_isFullscreen;
+    windowManager.setFullScreen(_isFullscreen);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Video(controller: videoController, fill: Colors.black),
-          Positioned.fill(
-              child: DanmakuScreen(
-                createdController: (c) => danmakuController = c,
-                option: DanmakuOption(
-                  fontSize: widget.args.danmuSize,
-                  duration: widget.args.danmuSpeed.toInt(),
-                  area: widget.args.danmuArea,
-                  opacity: widget.args.danmuOpacity,
-                  fontWeight: widget.args.danmuFontWeight,
-                  showStroke: widget.args.danmuStrokeWidth > 0,
+      body: MouseRegion(
+        onEnter: (_) {
+          if (mounted) setState(() => _controlsVisible = true);
+        },
+        onExit: (_) {
+          if (mounted) setState(() => _controlsVisible = false);
+        },
+        child: Stack(
+          children: [
+            Video(
+              controller: videoController,
+              fill: Colors.black,
+              controls: null,
+              wakelock: false,
+            ),
+            if (_danmakuVisible)
+              Positioned.fill(
+                child: DanmakuScreen(
+                  createdController: (c) => danmakuController = c,
+                  option: DanmakuOption(
+                    fontSize: _danmuSize,
+                    duration: widget.args.danmuSpeed.toInt(),
+                    area: widget.args.danmuArea,
+                    opacity: widget.args.danmuOpacity,
+                    fontWeight: widget.args.danmuFontWeight,
+                    showStroke: widget.args.danmuStrokeWidth > 0,
+                  ),
                 ),
               ),
+            if (_controlsVisible)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _buildControlsBar(),
+              ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildDanmakuToggle(),
+                  const SizedBox(width: 8),
+                  const _PinToggleButton(),
+                ],
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDanmakuToggle() {
+    return GestureDetector(
+      onTap: _toggleDanmaku,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(
+          _danmakuVisible ? Icons.visibility : Icons.visibility_off,
+          color: Colors.white70,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildControlsBar() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Colors.black87, Colors.transparent],
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(
+              _isPlaying ? Icons.pause : Icons.play_arrow,
+              color: Colors.white,
+              size: 24,
+            ),
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
+            onPressed: _togglePlayPause,
+          ),
+          _buildVolumeControl(),
+          const Spacer(),
+          IconButton(
+            icon: Icon(
+              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+              color: Colors.white,
+              size: 24,
+            ),
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            padding: EdgeInsets.zero,
+            onPressed: _toggleFullscreen,
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildVolumeControl() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            _volume > 0 ? Icons.volume_up : Icons.volume_off,
+            color: Colors.white,
+            size: 20,
+          ),
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          padding: EdgeInsets.zero,
+          onPressed: () {
+            final newVol = _volume > 0 ? 0.0 : 100.0;
+            player.setVolume(newVol);
+            setState(() => _volume = newVol);
+          },
+        ),
+        SizedBox(
+          width: 100,
+          child: SliderTheme(
+            data: const SliderThemeData(
+              trackHeight: 3,
+              thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
+              activeTrackColor: Colors.white,
+              inactiveTrackColor: Colors.white38,
+              thumbColor: Colors.white,
+              overlayColor: Colors.white24,
+            ),
+            child: Slider(
+              value: _volume,
+              min: 0,
+              max: 100,
+              onChanged: (v) {
+                player.setVolume(v);
+                setState(() => _volume = v);
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

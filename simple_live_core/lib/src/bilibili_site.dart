@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:simple_live_core/src/common/core_log.dart';
 import 'package:simple_live_core/src/common/convert_helper.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
 import 'package:simple_live_core/src/danmaku/bilibili_danmaku.dart';
@@ -272,9 +273,9 @@ class BiliBiliSite implements LiveSite {
 
         String formattedDuration =
             '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-        print('Bilibili直播间 $roomId 开播时长: $formattedDuration');
+        CoreLog.d('Bilibili直播间 $roomId 开播时长: $formattedDuration');
       } catch (e) {
-        print('计算 Bilibili 开播时长出错: $e');
+        CoreLog.d('计算 Bilibili 开播时长出错: $e');
       }
     }
 
@@ -312,7 +313,7 @@ class BiliBiliSite implements LiveSite {
       queryParameters: queryParams,
       header: await getHeader(),
     );
-    print("【B站接口返回】roomId=$roomId, result=$result");
+    CoreLog.d("【B站接口返回】roomId=$roomId, result=$result");
     return result["data"];
   }
 

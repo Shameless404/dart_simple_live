@@ -233,9 +233,9 @@ class DouyuSite implements LiveSite {
 
         String formattedDuration =
             '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-        print('斗鱼直播间 $roomId 开播时长: $formattedDuration');
+        CoreLog.d('斗鱼直播间 $roomId 开播时长: $formattedDuration');
       } catch (e) {
-        print('计算开播时长出错: $e');
+        CoreLog.d('计算开播时长出错: $e');
       }
     }
 

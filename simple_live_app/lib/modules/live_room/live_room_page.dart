@@ -992,13 +992,23 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     } catch (e) { Log.logPrint(e); }
 
     var settings = AppSettingsController.instance;
+    // Read cached mini player danmuSize override
+    var danmuSize = settings.danmuSize.value;
+    try {
+      final cacheFile = File('${Directory.systemTemp.path}\\simple_live_mini_danmu.json');
+      if (cacheFile.existsSync()) {
+        final cacheData = jsonDecode(cacheFile.readAsStringSync());
+        danmuSize = ((cacheData['danmuSize'] as num?)?.toDouble() ?? danmuSize)
+            .clamp(8.0, 48.0);
+      }
+    } catch (e) { debugPrint('MiniPlayer: read cache failed: $e'); }
     var args = MiniPlayerArguments(
       roomId: item.roomId,
       siteId: item.siteId,
       streamUrl: streamUrl,
       streamHeaders: streamHeaders,
       bilibiliCookie: bilibiliCookie,
-      danmuSize: settings.danmuSize.value,
+      danmuSize: danmuSize,
       danmuSpeed: settings.danmuSpeed.value,
       danmuArea: settings.danmuArea.value,
       danmuOpacity: settings.danmuOpacity.value,

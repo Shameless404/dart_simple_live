@@ -356,3 +356,22 @@ class _MiniWindowCloseHandler extends WindowListener {
 - `MiniPlayerPage.initState()` 中赋值：`globalMiniPlayer = player;`
 - `MiniPlayerPage.dispose()` 中置 null：`globalMiniPlayer = null;`
 - `main.dart` 已 import `mini_player_window.dart`，可直接访问
+
+## canvas_danmaku 空转 CPU 修复
+- canvas_danmaku 0.2.7 的 30fps Timer 即使弹幕列表为空也调用 `setState()` → 白烧 CPU
+- **修复（pub cache，3 处）：**
+  1. `initState()` Timer 回调：4 个列表全空时 `return` 不 `setState`
+  2. `resume()` 中创建的 Timer 回调：同上
+  3. `_startTick()` while 循环开头：4 个列表全空时 `continue` 跳过 `removeWhere`
+- 默认弹幕 OFF 时 `DanmakuScreen` 不在 widget 树，零开销
+- 弹幕 ON 但无消息时 Timer 仍跑但 `setState` 被跳过，`_startTick` 循环仅 `Future.delayed(100ms)`
+
+## 子窗口默认状态 — CPU 零额外开销
+- **弹幕：** 默认 OFF，`_danmakuEnabled = false`，`DanmakuScreen` 不在 widget 树
+- **视频：** `Video(controls: null, wakelock: false)`，无原生 controls 子树，仅 mpv 解码
+- **控制栏：** `_showControls = false` → build 返回 null，鼠标进入才挂载
+- 所有平台统一：弹幕/控制栏默认不在树，无 Timer/Stream 开销
+
+## 置顶 toggle 修复
+- `_PinToggleButton.onTap` 必须先 `await windowManager.setAlwaysOnTop(newValue)` 再 `setState`
+- 原顺序颠倒 → 状态与窗口实际状态不同步（点 unpin 实际 still on top）
