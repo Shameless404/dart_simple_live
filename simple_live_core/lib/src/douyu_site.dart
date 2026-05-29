@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:simple_live_core/src/common/core_log.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
 import 'package:simple_live_core/src/danmaku/douyu_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_danmaku.dart';
@@ -373,7 +374,8 @@ class DouyuSite implements LiveSite {
         num *= 10000;
       }
       return num.round();
-    } catch (_) {
+    } catch (e) {
+      CoreLog.error(e);
       return -999;
     }
   }

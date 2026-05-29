@@ -41,6 +41,12 @@ import 'package:dynamic_color/dynamic_color.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 捕获全局 hardError（Flutter 引擎关闭时 native 回调残留）
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    if (error.toString().contains('hardError')) return true;
+    return false;
+  };
+
   // Check for mini-player mode (launched as a separate process)
   final miniPlayerArgs = Platform.environment['SIMPLE_LIVE_MINIPLAYER'];
   if (miniPlayerArgs != null && miniPlayerArgs.isNotEmpty) {
@@ -136,8 +142,13 @@ class _MainWindowCloseHandler extends WindowListener {
   @override
   void onWindowClose() {
     Future(() async {
+      // 有序清理：触发所有 GetX Controller 的 onClose() → 包括 player.dispose()
+      try {
+        await Get.deleteAll(force: true);
+      } catch (e) { Log.logPrint(e); }
+      // 强制销毁窗口，跳过 Flutter 引擎的正常关闭序列，防止 hardError
       await windowManager.setPreventClose(false);
-      await windowManager.close();
+      await windowManager.destroy();
     });
   }
 }

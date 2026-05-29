@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -119,6 +120,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     liveDanmaku?.stop();
     player.dispose();
     super.dispose();
+    // 强制终止进程，防止 Flutter 引擎 native 回调残留导致 hardError
+    Future.delayed(const Duration(milliseconds: 50), () => exit(0));
   }
 
   Future<void> _play() async {

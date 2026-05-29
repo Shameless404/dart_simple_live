@@ -271,7 +271,6 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     } else {
       windowManager.setFullScreen(true);
     }
-    //danmakuController?.clear();
   }
 
   /// 退出全屏
@@ -284,8 +283,6 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       windowManager.setFullScreen(false);
     }
     fullScreenState.value = false;
-
-    //danmakuController?.clear();
   }
 
   Size? _lastWindowSize;

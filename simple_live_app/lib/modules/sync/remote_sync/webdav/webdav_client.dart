@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:simple_live_app/app/log.dart';
 import 'package:webdav_client/webdav_client.dart';
 
 class DAVClient {
@@ -33,7 +34,8 @@ class DAVClient {
     try {
       await client.ping();
       return true;
-    } catch (_) {
+    } catch (e) {
+      Log.logPrint(e);
       return false;
     }
   }
