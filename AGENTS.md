@@ -310,3 +310,49 @@ var setCookieHeaders = result.headers["set-cookie"];
 - Dart SDK constraint: `>=3.0.5 <4.0.0` (app), `>=3.10.0` (core)
 - Flutter: 3.44.0
 - Key packages: dio ^5.9.0, get ^4.7.3, protobuf ^3.1.0, lottie ^3.3.2, media_kit
+
+## Release & GitHub 操作规范
+
+### Release 操作红牌
+- **绝不自行修改 Release 描述**（语言、格式、内容）→ 必须先问用户
+- **Release ZIP 文件名必须与 README 链接一致**：`simple_live_v<version>_windows-x64.zip`
+- **创建 release 后检查**：`draft` 要发布、描述是否正确、ZIP 可下载
+
+### PowerShell 中文编码
+- `ConvertTo-Json` + `Invoke-RestMethod` 会导致中文乱码（PowerShell 5.1 限制）
+- 可靠方案：`curl.exe -s -X PATCH ... --data-binary "@file.json"` + 文件用 `[System.Text.Encoding]::ASCII.GetBytes(unicodeEscapedJson)` 写入
+- 对中文用 `\uXXXX` 转义再拼 JSON，确保输出纯 ASCII
+
+## 子进程 hardError 修复（最终方案）
+
+### 根因
+用户点 X → Flutter 引擎先开始 native shutdown → `MiniPlayerState.dispose()` 跑 `player.dispose()` → mpv 回调发向已销毁的 isolate → hardError。`exit(0)` 也来不及（engine shutdown 先于 `dispose()` 执行）。
+
+### 修复方案
+在 `main.dart` 子进程入口加 `window_manager` 拦截 WM_CLOSE：
+```dart
+await windowManager.ensureInitialized();
+await windowManager.setPreventClose(true);
+windowManager.addListener(_MiniWindowCloseHandler());
+```
+
+`_MiniWindowCloseHandler` 在 `destroy()` 前先 dispose player：
+```dart
+class _MiniWindowCloseHandler extends WindowListener {
+  @override
+  void onWindowClose() {
+    Future(() async {
+      await globalMiniPlayer?.dispose();
+      globalMiniPlayer = null;
+      await windowManager.setPreventClose(false);
+      await windowManager.destroy();
+    });
+  }
+}
+```
+
+### 全局 player 引用
+- 定义在 `mini_player_window.dart`：`Player? globalMiniPlayer;`
+- `MiniPlayerPage.initState()` 中赋值：`globalMiniPlayer = player;`
+- `MiniPlayerPage.dispose()` 中置 null：`globalMiniPlayer = null;`
+- `main.dart` 已 import `mini_player_window.dart`，可直接访问
