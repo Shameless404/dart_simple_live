@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:simple_live_core/simple_live_core.dart';
+import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:window_manager/window_manager.dart';
 
 class MiniPlayerArguments {
@@ -20,6 +24,9 @@ class MiniPlayerArguments {
   final double danmuStrokeWidth;
   final String danmakuSite;
   final String danmakuJson;
+  final int cascadeIndex;
+  final String userName;
+  final String title;
 
   MiniPlayerArguments({
     required this.siteId,
@@ -35,6 +42,9 @@ class MiniPlayerArguments {
     required this.danmuStrokeWidth,
     required this.danmakuSite,
     required this.danmakuJson,
+    this.cascadeIndex = 0,
+    this.userName = '',
+    this.title = '',
   });
 
   Map<String, dynamic> toJson() => {
@@ -51,6 +61,9 @@ class MiniPlayerArguments {
         'danmuStrokeWidth': danmuStrokeWidth,
         'danmakuSite': danmakuSite,
         'danmakuJson': danmakuJson,
+        'cascadeIndex': cascadeIndex,
+        'userName': userName,
+        'title': title,
       };
 
   factory MiniPlayerArguments.fromJson(Map<String, dynamic> json) =>
@@ -70,6 +83,9 @@ class MiniPlayerArguments {
         danmuStrokeWidth: (json['danmuStrokeWidth'] as num?)?.toDouble() ?? 0,
         danmakuSite: json['danmakuSite'] as String? ?? '',
         danmakuJson: json['danmakuJson'] as String? ?? '',
+        cascadeIndex: (json['cascadeIndex'] as int? ?? 0).clamp(0, 999),
+        userName: json['userName'] as String? ?? '',
+        title: json['title'] as String? ?? '',
       );
 }
 
@@ -98,6 +114,17 @@ class _PinToggleButton extends StatefulWidget {
 
 class _PinToggleButtonState extends State<_PinToggleButton> {
   bool _isPinned = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initPinned();
+  }
+
+  Future<void> _initPinned() async {
+    final pinned = await windowManager.isAlwaysOnTop();
+    if (mounted) setState(() => _isPinned = pinned);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,17 +164,19 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   late final VideoController videoController;
   DanmakuController? danmakuController;
   LiveDanmaku? liveDanmaku;
-  bool _danmakuVisible = false;
-  bool _controlsVisible = false;
+  bool _isMouseInside = false;
+  bool _danmakuUserEnabled = false;
   bool _isPlaying = false;
   double _volume = 100;
   bool _isFullscreen = false;
   late double _danmuSize;
+  Timer? _cleanupTimer;
 
   @override
   void initState() {
     super.initState();
     _danmuSize = widget.args.danmuSize;
+    BlockedUsersService.instance.init();
     player = Player(
       configuration: const PlayerConfiguration(
         title: 'Simple Live Player',
@@ -156,13 +185,18 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     );
     globalMiniPlayer = player;
     videoController = VideoController(player);
-    _volume = player.state.volume;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _play());
+    player.setVolume(0);
+    _volume = 0;
+    windowManager.setTitle("${widget.args.userName} - ${widget.args.title}");
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _play();
+    });
   }
 
   @override
   void dispose() {
     globalMiniPlayer = null;
+    _cleanupTimer?.cancel();
     liveDanmaku?.stop();
     player.dispose();
     super.dispose();
@@ -171,6 +205,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   Future<void> _play() async {
     if (widget.args.streamUrl.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 100));
+      final sizeFuture = _waitForVideoSize();
       await player.open(Media(
         widget.args.streamUrl,
         httpHeaders: widget.args.streamHeaders,
@@ -178,6 +213,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       await player.play();
       _isPlaying = true;
       if (mounted) setState(() {});
+      final size = await sizeFuture;
+      if (size != null) _resizeWindow(size.$1, size.$2);
       return;
     }
     if (widget.args.siteId == 'douyin') {
@@ -194,6 +231,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[0]);
       if (playUrl.urls.isEmpty) return;
       await Future.delayed(const Duration(milliseconds: 100));
+      final sizeFuture = _waitForVideoSize();
       await player.open(Media(
         playUrl.urls[0],
         httpHeaders: playUrl.headers,
@@ -201,7 +239,43 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       await player.play();
       _isPlaying = true;
       if (mounted) setState(() {});
+      final size = await sizeFuture;
+      if (size != null) _resizeWindow(size.$1, size.$2);
     } catch (e) { debugPrint('MiniPlayer: _resolveDouyinAndPlay error: $e'); }
+  }
+
+  Future<(int, int)?> _waitForVideoSize() async {
+    try {
+      final params = await player.stream.videoParams
+          .firstWhere((p) => p.dw != null && p.dh != null && p.dw! > 0 && p.dh! > 0)
+          .timeout(const Duration(seconds: 5));
+      int w = params.dw!;
+      int h = params.dh!;
+      if (params.rotate == 90 || params.rotate == 270) {
+        final tmp = w;
+        w = h;
+        h = tmp;
+      }
+      return (w, h);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _resizeWindow(int w, int h) async {
+    if (w <= 0 || h <= 0) return;
+    final aspectRatio = w / h;
+    double targetWidth, targetHeight;
+    if (aspectRatio >= 1) {
+      targetWidth = 640;
+      targetHeight = (640 / aspectRatio).roundToDouble();
+    } else {
+      targetHeight = 540;
+      targetWidth = (540 * aspectRatio).roundToDouble();
+    }
+    targetWidth = targetWidth.clamp(280, 900);
+    targetHeight = targetHeight.clamp(200, 700);
+    await windowManager.setSize(Size(targetWidth, targetHeight));
   }
 
   Future<void> _connectDanmaku() async {
@@ -261,29 +335,94 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   void _setupDanmakuHandlers() {
     liveDanmaku!.onMessage = (LiveMessage msg) {
       if (msg.type != LiveMessageType.chat) return;
+      final siteId = widget.args.danmakuSite;
+      if (BlockedUsersService.instance.isBlocked(siteId, msg.userName)) return;
       final c = msg.color;
       final color = Color.fromARGB(255, c.r, c.g, c.b);
       final item = DanmakuContentItem(
         msg.message,
         color: color,
         type: DanmakuItemType.scroll,
+        userName: msg.userName,
       );
       danmakuController?.addDanmaku(item);
     };
   }
 
+  void _onDanmakuSecondaryTap(DanmakuContentItem item, Offset globalPosition) {
+    if (item.userName == null || item.userName!.isEmpty) return;
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+    final localPos = renderBox.globalToLocal(globalPosition);
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        localPos.dx, localPos.dy, localPos.dx, localPos.dy,
+      ),
+      items: [
+        PopupMenuItem(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.block, size: 18, color: Colors.red[400]),
+              const SizedBox(width: 8),
+              Text("拉黑用户", style: TextStyle(color: Colors.red[400])),
+            ],
+          ),
+          onTap: () {
+            BlockedUsersService.instance.block(
+              widget.args.danmakuSite,
+              item.userName!,
+              item.text,
+              anchorName: widget.args.userName,
+            );
+            _showToast("拉黑 ${item.userName} 成功");
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showToast(String message) {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: 20,
+        right: 20,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              message,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 1), () {
+      if (entry.mounted) entry.remove();
+    });
+  }
+
   void _toggleDanmaku() {
-    if (liveDanmaku != null) {
-      liveDanmaku!.stop();
+    _danmakuUserEnabled = !_danmakuUserEnabled;
+    if (!_danmakuUserEnabled) {
+      liveDanmaku?.stop();
       liveDanmaku = null;
       danmakuController = null;
-      setState(() => _danmakuVisible = false);
     } else {
-      setState(() => _danmakuVisible = true);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _danmakuVisible) _connectDanmaku();
-      });
+      _connectDanmaku();
     }
+    setState(() {});
   }
 
   void _togglePlayPause() {
@@ -307,10 +446,17 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       backgroundColor: Colors.black,
       body: MouseRegion(
         onEnter: (_) {
-          if (mounted) setState(() => _controlsVisible = true);
+          _isMouseInside = true;
+          _cleanupTimer?.cancel();
+          _cleanupTimer = null;
+          setState(() {});
         },
         onExit: (_) {
-          if (mounted) setState(() => _controlsVisible = false);
+          _isMouseInside = false;
+          _cleanupTimer?.cancel();
+          _cleanupTimer = Timer(const Duration(seconds: 3), () {
+            if (mounted) setState(() {});
+          });
         },
         child: Stack(
           children: [
@@ -320,39 +466,45 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
               controls: null,
               wakelock: false,
             ),
-            if (_danmakuVisible)
+            if (_danmakuUserEnabled)
               Positioned.fill(
-                child: DanmakuScreen(
-                  createdController: (c) => danmakuController = c,
-                  option: DanmakuOption(
-                    fontSize: _danmuSize,
-                    duration: widget.args.danmuSpeed.toInt(),
-                    area: widget.args.danmuArea,
-                    opacity: widget.args.danmuOpacity,
-                    fontWeight: widget.args.danmuFontWeight,
-                    showStroke: widget.args.danmuStrokeWidth > 0,
+                child: MouseRegion(
+                  onEnter: (_) => danmakuController?.pause(),
+                  onExit: (_) => danmakuController?.resume(),
+                  child: DanmakuScreen(
+                    createdController: (c) => danmakuController = c,
+                    option: DanmakuOption(
+                      fontSize: _danmuSize,
+                      duration: widget.args.danmuSpeed.toInt(),
+                      area: widget.args.danmuArea,
+                      opacity: widget.args.danmuOpacity,
+                      fontWeight: widget.args.danmuFontWeight,
+                      showStroke: widget.args.danmuStrokeWidth > 0,
+                    ),
+                    onDanmakuSecondaryTap: (item, pos) => _onDanmakuSecondaryTap(item, pos),
                   ),
                 ),
               ),
-            if (_controlsVisible)
+            if (_isMouseInside)
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
                 child: _buildControlsBar(),
               ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildDanmakuToggle(),
-                  const SizedBox(width: 8),
-                  const _PinToggleButton(),
-                ],
+            if (_isMouseInside)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildDanmakuToggle(),
+                    const SizedBox(width: 8),
+                    const _PinToggleButton(),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -370,7 +522,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(
-          _danmakuVisible ? Icons.visibility : Icons.visibility_off,
+          _danmakuUserEnabled ? Icons.visibility : Icons.visibility_off,
           color: Colors.white70,
           size: 20,
         ),

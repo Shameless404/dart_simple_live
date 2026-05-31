@@ -21,6 +21,7 @@ import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/modules/live_room/player/player_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
+import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
@@ -237,6 +238,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         messages.removeAt(0);
       }
 
+      // 拉黑用户检查
+      if (BlockedUsersService.instance.isBlocked(site.id, msg.userName)) {
+        return;
+      }
+
       // 关键词屏蔽检查
       for (var keyword in AppSettingsController.instance.shieldList) {
         Pattern? pattern;
@@ -275,6 +281,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
             msg.color.g,
             msg.color.b,
           ),
+          userName: msg.userName,
         ),
       ]);
     } else if (msg.type == LiveMessageType.online) {
@@ -315,6 +322,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       update();
       addSysMsg("正在读取直播间信息");
       detail.value = await site.liveSite.getRoomDetail(roomId: roomId);
+      windowManager.setTitle("${detail.value!.userName} - ${detail.value!.title}");
 
       if (site.id == Constant.kDouyin) {
         // 1.6.0之前收藏的WebRid

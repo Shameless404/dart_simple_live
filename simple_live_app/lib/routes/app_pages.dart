@@ -34,6 +34,8 @@ import 'package:simple_live_app/modules/settings/auto_exit_settings_page.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
 import 'package:simple_live_app/modules/settings/danmu_shield/danmu_shield_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_shield/danmu_shield_page.dart';
+import 'package:simple_live_app/modules/settings/blocked_users/blocked_users_controller.dart';
+import 'package:simple_live_app/modules/settings/blocked_users/blocked_users_page.dart';
 import 'package:simple_live_app/modules/follow_user/follow_user_controller.dart';
 import 'package:simple_live_app/modules/follow_user/follow_user_page.dart';
 import 'package:simple_live_app/modules/mine/history/history_controller.dart';
@@ -138,6 +140,14 @@ class AppPages {
       page: () => const DanmuShieldPage(),
       bindings: [
         BindingsBuilder.put(() => DanmuShieldController()),
+      ],
+    ),
+    //拉黑管理
+    GetPage(
+      name: RoutePath.kSettingsBlockedUsers,
+      page: () => const BlockedUsersPage(),
+      bindings: [
+        BindingsBuilder.put(() => BlockedUsersController()),
       ],
     ),
     //主页设置

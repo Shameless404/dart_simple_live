@@ -59,6 +59,10 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
                 onTap: onTapDanmuShield ??
                     () => Get.toNamed(RoutePath.kSettingsDanmuShield),
               ),
+              SettingsAction(
+                title: "拉黑管理",
+                onTap: () => Get.toNamed(RoutePath.kSettingsBlockedUsers),
+              ),
             ],
           ),
         ),

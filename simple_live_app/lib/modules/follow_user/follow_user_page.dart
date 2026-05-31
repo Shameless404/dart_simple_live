@@ -147,12 +147,15 @@ class FollowUserPage extends GetView<FollowUserController> {
               ],
             ),
           ),
+          _FollowSearchBar(
+            onSearch: controller.onSearch,
+          ),
           Expanded(
             child: PageGridView(
               crossAxisSpacing: 12,
               crossAxisCount: count,
               pageController: controller,
-              firstRefresh: true,
+              firstRefresh: false,
               showPCRefreshButton: false,
               itemBuilder: (_, i) {
                 var item = controller.list[i];
@@ -392,6 +395,57 @@ class FollowUserPage extends GetView<FollowUserController> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FollowSearchBar extends StatefulWidget {
+  final ValueChanged<String> onSearch;
+  const _FollowSearchBar({required this.onSearch});
+
+  @override
+  State<_FollowSearchBar> createState() => _FollowSearchBarState();
+}
+
+class _FollowSearchBarState extends State<_FollowSearchBar> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: TextField(
+        controller: _ctrl,
+        decoration: InputDecoration(
+          hintText: "搜索主播...",
+          prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: _ctrl.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    _ctrl.clear();
+                    setState(() {});
+                    widget.onSearch('');
+                  },
+                )
+              : null,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        onChanged: (v) {
+          setState(() {});
+          widget.onSearch(v);
+        },
       ),
     );
   }

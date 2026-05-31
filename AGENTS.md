@@ -11,7 +11,7 @@
 2. **修改构建/环境/依赖后** → 对我说 `更新agent`，我会同步更新
 3. `AGENTS.md` 只在新对话开始时加载，**对话中不会自动更新**
 4. 我必须主动把新知识写进 `AGENTS.md`，否则下次对话我会忘记
-5. 每次改动后我会 commit & push 到 GitHub
+5. 只有你明确说时才会 commit & push 到 GitHub，不会自动推送
 
 ## ⚠️ 不可忘记的规则（每次对话必须先看）
 
@@ -374,4 +374,94 @@ class _MiniWindowCloseHandler extends WindowListener {
 
 ## 置顶 toggle 修复
 - `_PinToggleButton.onTap` 必须先 `await windowManager.setAlwaysOnTop(newValue)` 再 `setState`
-- 原顺序颠倒 → 状态与窗口实际状态不同步（点 unpin 实际 still on top）
+- `initState` 中加 `_initPinned()` → `windowManager.isAlwaysOnTop()` 读取真实状态
+- 控制栏重建时（鼠标离开/再进入）不再复位到 false，始终从真实窗口状态同步
+
+## 子窗口尺寸按宽高比适配
+- **方案：** 用 `player.stream.videoParams.firstWhere(dw>0, dh>0)` 零 CPU 等视频尺寸
+- 必须在 `player.open()` 前订阅 stream（broadcast 不重放历史，否则错过事件）
+- 横屏（aspectRatio ≥ 1）→ 宽度 640，高度按比例缩放
+- 竖屏 → 高度 540，宽度按比例缩放
+- 处理 `rotate` 90/270 交换 w/h
+- Clamp: 280~900 × 200~700
+
+### 9. 关注列表启动时自动刷新
+- `follow_user_controller.dart:45`: `onInit()` 中加 `filterData()` ← 读 `FollowService.followList` 到 `pageController.list`
+- `follow_user_controller.dart:46`: 加 `updateTagList()` 展示自定义标签
+- `follow_user_controller.dart:81-88`: `filterData()` 额外设 `pageEmpty`, `pageError`, `pageLoadding`, `canLoadMore=false`
+- `follow_service.dart:57`: `onInit()` 加 `loadData()`（启动时从 Hive 加载）
+- `follow_user_page.dart:155`: `firstRefresh: true → false`
+- **构建输出位置：** `D:\simple_live\simple_live_app.exe`
+
+### 10. canvas_danmaku 无手势/点击 API
+- 整个 widget 被 `IgnorePointer` 包裹，不参与 HitTest
+- `DanmakuController` 仅有 CRUD：`pause/resume/clear/addDanmaku/updateOption`
+- `DanmakuContentItem` 只有 `text/color/type/selfSend`，无 `userName`
+- 弹幕上实现右击/点击 → 必须改 pub cache 源码
+
+### 11. 弹幕拉黑管理（已实现）
+
+**存储：** `blocked_users.json` 在 exe 同目录，一行一个 JSON，`key=platform:userName`
+
+**架构：**
+- `BlockedUsersService` — 纯 Dart 单例（无 GetX/Hive 依赖），主进程和子进程通用
+- `AppSettingsController` — 包装 `RxMap<String, BlockedUserEntry>` 做设置页响应式
+- `BlockedUsersController` + `BlockedUsersPage` — 设置页拉黑管理 UI
+
+**入口（聊天消息右击 + 子窗口弹幕右击 + 设置页）：**
+1. **聊天消息右击：** `live_room_page.dart` `buildMessageItem()` → GestureDetector(onSecondaryTapDown) → showMenu → `BlockedUsersService.instance.block()`
+2. **子窗口弹幕右击：** `mini_player_window.dart` → `_onDanmakuTap()` → 直接拉黑 + OverlayEntry toast
+3. **设置页：** `danmu_settings_page.dart` → "拉黑管理" → 列出所有已拉黑用户，可移除
+
+**pub cache 追加修改（canvas_danmaku 0.2.7）：**
+1. `danmaku_content_item.dart` — 加 `userName` 字段
+2. `danmaku_screen.dart` — 移除 `IgnorePointer`，加 `GestureDetector` + hit-test + `onDanmakuSecondaryTap` 回调
+
+**子窗口区别：** 主窗口走聊天右击（`player_controls.dart` 已无弹幕右击），子窗口走弹幕右击。
+**子窗口盾词缺失：** 子窗口 `_setupDanmakuHandlers` 只有拉黑过滤没有盾词过滤（用户已知）。
+
+### 12. BlockedUsersService 简化（2026-05-31）
+**去掉了 File.watch + onChangeCallbacks + dispose，改用：**
+- `block()` — 内存加一条 + 用 `FileMode.append` 追加一行（`\n${jsonEncode(entry.toJson())}`），不全文重写
+- `unblock()` — 内存删 + 全文重写（删行必须）
+- `init()` — 启动时检测文件不存在则创建空文件
+- `reload()` — 只重新读文件，无文件监听
+- 格式：一行一个 JSON，每行 `{"key":...,"userName":...,"anchorName":...,"platform":...,"message":...,"timestamp":...}`
+- 跨进程不同步（子窗口拉黑只存自己文件，不通知主窗口）
+- 每次进拉黑管理页面时 `initState()` 调 `reload()` 再同步 RxMap
+
+### 13. anchorName 字段（2026-05-31）
+**File:** `blocked_users_service.dart`
+- `BlockedUserEntry` 加 `String anchorName`（主播名字）
+- `block()` 加 `{String anchorName = ''}` 参数
+- 兼容旧数据：`fromJson` 中 `json['anchorName'] as String? ?? ''`
+- 调用方：`live_room_page.dart:563` 传 `controller.detail.value?.userName`，`mini_player_window.dart:374` 传 `widget.args.userName`
+- `blocked_users_page.dart` 展示格式为两行：`用户名 [平台] 主播名`（同级别）+ 灰色缩进第二行弹幕内容（平铺 Column，不用 ListTile title/subtitle）
+
+### 14. Toast 统一（2026-05-31）
+- 主窗口聊天右击拉黑提示：从 `Get.snackbar` 改为 `OverlayEntry` 黑底白字圆角卡片，1 秒后自动移除
+- 和子窗口 `_showToast()` 风格一致（子窗口原本就是 OverlayEntry，未改）
+
+### 15. 关注列表搜索功能（2026-05-31）
+
+**两个入口：**
+
+**1. 关注 Tab（`follow_user_page.dart` + `follow_user_controller.dart`）**
+- `FollowUserController.searchQuery: RxString('')` + `onSearch(String query)` 方法
+- 搜索时从 `FollowService.instance.followList` 按 `userName.toLowerCase().contains(query.toLowerCase())` 模糊匹配
+- 清空搜索恢复当前标签筛选
+- 搜索期间自动跳过 `updatedListStream` 的 `filterData()`（避免刷新冲掉搜索结果）
+- 切换到其他标签时自动清空搜索（`setFilterMode()` 中 `searchQuery.value = ''`）
+- UI：`_FollowSearchBar`（StatefulWidget）放在标签栏和网格之间，带搜索图标、`X` 清除按钮
+
+**2. 侧边栏关注列表（`live_room_page.dart` `_FollowListWithSearch`）**
+- `_FollowListWithSearch` StatefulWidget，含 `TextEditingController` + `_query` 状态
+- 搜索时从全部关注搜（不限于 liveList），方便找未开播主播
+- 清空恢复显示 liveList
+- 保留 `KeepAliveWrapper` + `RefreshIndicator` + `DesktopRefreshButton`
+
+## 子窗口位置级联（setBounds 提前）
+- **关键保证：** `main.dart` mini-player 分支中，在 `runApp` 之前算好位置，调用 `setBounds(x, y, 640, 360)` 一次搞定位置+尺寸
+- **时序：** `setBounds` + `SetWindowPos` 已执行完毕 → `runApp` → Flutter 首帧 → `ShowWindow` → 窗口第一次出现就在正确位置（零瞬移闪屏）
+- **公式：** `cascadeIndex` (0, 1, 2...) 传入子进程，`x=step*idx`, `y=屏幕高-窗口高-(step*idx)`, 超出边界重置到最左下
+- `mini_player_window.dart` 已无 `_setInitialPosition()`，`initState` 只调 `_play()`，视频尺寸就绪后 `_resizeWindow` 调 `setSize`（`SWP_NOMOVE` 保留位置）

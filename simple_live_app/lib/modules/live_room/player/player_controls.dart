@@ -673,7 +673,11 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
                   bottom: AppSettingsController.instance.danmuBottomMargin.value,
                 )
               : EdgeInsets.zero,
-          child: controller.danmakuView!,
+          child: MouseRegion(
+            onEnter: (_) => controller.danmakuController?.pause(),
+            onExit: (_) => controller.danmakuController?.resume(),
+            child: controller.danmakuView!,
+          ),
         ),
       ),
     ),

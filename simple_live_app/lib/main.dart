@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' hide Size;
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -27,6 +29,7 @@ import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
@@ -57,6 +60,25 @@ void main() async {
     await windowManager.ensureInitialized();
     await windowManager.setPreventClose(true);
     windowManager.addListener(_MiniWindowCloseHandler());
+
+    {
+      final user32 = DynamicLibrary.open('user32.dll');
+      final gsm = user32.lookupFunction<Int32 Function(Int32), int Function(int)>('GetSystemMetrics');
+      final int screenW = gsm(0);
+      final int screenH = gsm(1);
+      const double initH = 360;
+      const double initW = 640;
+      const double step = 120;
+      final int idx = args.cascadeIndex;
+      final double dpr = ui.window.devicePixelRatio;
+      double x = (step * idx).toDouble();
+      double y = screenH / dpr - initH - (step * idx);
+      if (x + initW > screenW / dpr || y < 0) {
+        x = 0;
+        y = screenH / dpr - initH;
+      }
+      windowManager.setBounds(Rect.fromLTWH(x, y, initW, initH));
+    }
     runApp(MiniPlayerApp(args: args));
     return;
   }
@@ -147,6 +169,7 @@ class _MainWindowCloseHandler extends WindowListener {
     Future(() async {
       // 有序清理：触发所有 GetX Controller 的 onClose() → 包括 player.dispose()
       try {
+        MiniPlayerManager.instance.killAll();
         await Get.deleteAll(force: true);
       } catch (e) { Log.logPrint(e); }
       // 强制销毁窗口，跳过 Flutter 引擎的正常关闭序列，防止 hardError

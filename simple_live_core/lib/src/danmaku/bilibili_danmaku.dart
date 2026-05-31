@@ -192,6 +192,17 @@ class BiliBiliDanmaku implements LiveDanmaku {
           var color = asT<int?>(obj["info"][0][3]) ?? 0;
           if (obj["info"][2] != null && obj["info"][2].length != 0) {
             var username = obj["info"][2][1].toString();
+            // 从 info[5] extra JSON 取完整 uname（B站可能在 info[2][1] 打码）
+            if (obj["info"].length > 5 && obj["info"][5] != null) {
+              try {
+                var extra = obj["info"][5] is String
+                    ? json.decode(obj["info"][5] as String)
+                    : obj["info"][5];
+                if (extra["user"]?["uname"] != null) {
+                  username = extra["user"]["uname"].toString();
+                }
+              } catch (_) {}
+            }
             var liveMsg = LiveMessage(
               type: LiveMessageType.chat,
               userName: username,

@@ -12,10 +12,12 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/live_room/player/player_controls.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
+import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
@@ -29,6 +31,8 @@ import 'package:simple_live_app/widgets/superchat_card.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
+
+int _miniWindowCascadeIndex = 0;
 
 class LiveRoomPage extends GetView<LiveRoomController> {
   const LiveRoomPage({Key? key}) : super(key: key);
@@ -487,9 +491,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                           ),
                           padding: AppStyle.edgeInsetsA12,
                           itemCount: controller.messages.length,
-                          itemBuilder: (_, i) {
+                          itemBuilder: (ctx, i) {
                             var item = controller.messages[i];
-                            return buildMessageItem(item);
+                            return buildMessageItem(item, ctx);
                           },
                         ),
                         Visibility(
@@ -523,7 +527,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     );
   }
 
-  Widget buildMessageItem(LiveMessage message) {
+  Widget buildMessageItem(LiveMessage message, BuildContext context) {
     if (message.userName == "LiveSysMessage") {
       return Obx(
         () => Text(
@@ -536,9 +540,66 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       );
     }
 
-    return Obx(
-      () => AppSettingsController.instance.chatBubbleStyle.value
-          ? Row(
+    return GestureDetector(
+      onSecondaryTapDown: (details) {
+        showMenu(
+          context: context,
+          position: RelativeRect.fromLTRB(
+            details.globalPosition.dx, details.globalPosition.dy,
+            details.globalPosition.dx, details.globalPosition.dy,
+          ),
+          items: [
+            PopupMenuItem(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.block, size: 18, color: Colors.red[400]),
+                  const SizedBox(width: 8),
+                  Text("拉黑用户", style: TextStyle(color: Colors.red[400])),
+                ],
+              ),
+              onTap: () {
+                BlockedUsersService.instance.block(
+                  controller.site.id,
+                  message.userName,
+                  message.message,
+                  anchorName: controller.detail.value?.userName ?? '',
+                );
+                final overlay = Overlay.of(context, rootOverlay: true);
+                late OverlayEntry entry;
+                entry = OverlayEntry(
+                  builder: (_) => Positioned(
+                    top: 20,
+                    right: 20,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          "拉黑 ${message.userName} 成功",
+                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+                overlay.insert(entry);
+                Future.delayed(const Duration(seconds: 1), () {
+                  if (entry.mounted) entry.remove();
+                });
+              },
+            ),
+          ],
+        );
+      },
+      child: Obx(
+        () => AppSettingsController.instance.chatBubbleStyle.value
+            ? Row(
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -596,6 +657,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 ],
               ),
             ),
+          ),
     );
   }
 
@@ -733,47 +795,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildFollowList() {
-    return KeepAliveWrapper(
-      child: Obx(
-        () => Stack(
-        children: [
-          RefreshIndicator(
-            onRefresh: FollowService.instance.loadData,
-            child: ListView.builder(
-              itemCount: FollowService.instance.liveList.length,
-              itemBuilder: (_, i) {
-                var item = FollowService.instance.liveList[i];
-                return Obx(
-                  () => FollowUserItem(
-                    item: item,
-                    playing: controller.rxSite.value.id == item.siteId &&
-                        controller.rxRoomId.value == item.roomId,
-                    onTap: () {
-                      controller.resetRoom(
-                        Sites.allSites[item.siteId]!,
-                        item.roomId,
-                      );
-                    },
-                    onLongPress: () => _openMiniWindow(item),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (Platform.isLinux || Platform.isWindows || Platform.isMacOS)
-            Positioned(
-              right: 12,
-              bottom: 12,
-              child: Obx(
-                () => DesktopRefreshButton(
-                  refreshing: FollowService.instance.updating.value,
-                  onPressed: FollowService.instance.loadData,
-                ),
-              ),
-            ),
-        ],
-      ),
-      ),
+    return _FollowListWithSearch(
+      controller: controller,
+      onLongPress: (item) => _openMiniWindow(item, skipConfirm: true),
     );
   }
 
@@ -922,28 +946,30 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     return "${s.toString().padLeft(2, '0')}秒";
   }
 
-  void _openMiniWindow(FollowUser item) async {
+  void _openMiniWindow(FollowUser item, {bool skipConfirm = false}) async {
     if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
       return;
     }
 
-    var confirm = await Get.dialog<bool>(
-      AlertDialog(
-        title: const Text("新窗口播放"),
-        content: Text("是否在新窗口中打开「${item.userName}」的直播间？"),
-        actions: [
-          TextButton(
-            onPressed: () => Get.back(result: false),
-            child: const Text("取消"),
-          ),
-          TextButton(
-            onPressed: () => Get.back(result: true),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
+    if (!skipConfirm) {
+      var confirm = await Get.dialog<bool>(
+        AlertDialog(
+          title: const Text("新窗口播放"),
+          content: Text("是否在新窗口中打开「${item.userName}」的直播间？"),
+          actions: [
+            TextButton(
+              onPressed: () => Get.back(result: false),
+              child: const Text("取消"),
+            ),
+            TextButton(
+              onPressed: () => Get.back(result: true),
+              child: const Text("确定"),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
 
     var bilibiliCookie = '';
     if (item.siteId == Constant.kBiliBili) {
@@ -955,23 +981,26 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     Map<String, String>? streamHeaders;
     var danmakuSite = item.siteId;
     var danmakuJson = '';
+    var userName = item.userName;
+    var title = '';
     try {
       if (item.siteId == Constant.kDouyin) {
-        // Douyin: sub-process resolves URL itself (fresher URL, avoids black screen)
-        // Use Sites.allSites singleton so DouyinAccountService's cookie is used
         final site = Sites.allSites[Constant.kDouyin]!.liveSite;
         final detail = await site.getRoomDetail(roomId: item.roomId);
+        userName = detail.userName;
+        title = detail.title;
         if (detail.danmakuData != null) {
           danmakuJson = detail.danmakuData.toString();
         }
       } else {
-        // Other platforms: main process resolves URL, sub-process just plays
         final site = Sites.allSites[item.siteId]?.liveSite;
         if (site != null) {
           if (site is BiliBiliSite && bilibiliCookie.isNotEmpty) {
             site.cookie = bilibiliCookie;
           }
           final detail = await site.getRoomDetail(roomId: item.roomId);
+          userName = detail.userName;
+          title = detail.title;
           if (detail.danmakuData != null) {
             if (item.siteId == 'douyu') {
               danmakuJson = detail.danmakuData as String;
@@ -1016,13 +1045,134 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       danmuStrokeWidth: settings.danmuStrokeWidth.value,
       danmakuSite: danmakuSite,
       danmakuJson: danmakuJson,
+      cascadeIndex: _miniWindowCascadeIndex,
+      userName: userName,
+      title: title,
     );
+    _miniWindowCascadeIndex++;
 
     final env = Map<String, String>.from(Platform.environment);
     env['SIMPLE_LIVE_MINIPLAYER'] = jsonEncode(args.toJson());
     // Use detached mode so sub-process stdout/stderr don't fill pipe buffer
     // (CoreLog + Dio interceptor writes to stdout, causing deadlock if unread)
-    Process.start(Platform.executable, [], environment: env,
+    final proc = await Process.start(Platform.executable, [], environment: env,
         mode: ProcessStartMode.detached);
+    MiniPlayerManager.instance.register(proc);
+  }
+}
+
+class _FollowListWithSearch extends StatefulWidget {
+  final LiveRoomController controller;
+  final void Function(FollowUser item) onLongPress;
+
+  const _FollowListWithSearch({
+    required this.controller,
+    required this.onLongPress,
+  });
+
+  @override
+  State<_FollowListWithSearch> createState() => _FollowListWithSearchState();
+}
+
+class _FollowListWithSearchState extends State<_FollowListWithSearch> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return KeepAliveWrapper(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: "搜索主播...",
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: _query.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _query = '');
+                        },
+                      )
+                    : null,
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onChanged: (v) => setState(() => _query = v),
+            ),
+          ),
+          Expanded(
+            child: Obx(
+              () {
+                final list = _query.isEmpty
+                    ? FollowService.instance.liveList
+                    : FollowService.instance.followList
+                        .where((u) => u.userName
+                            .toLowerCase()
+                            .contains(_query.toLowerCase()))
+                        .toList()
+                        .obs;
+                return Stack(
+                  children: [
+                    RefreshIndicator(
+                      onRefresh: FollowService.instance.loadData,
+                      child: ListView.builder(
+                        itemCount: list.length,
+                        itemBuilder: (_, i) {
+                          var item = list[i];
+                          return Obx(
+                            () => FollowUserItem(
+                              item: item,
+                              playing: widget.controller.rxSite.value.id ==
+                                      item.siteId &&
+                                  widget.controller.rxRoomId.value ==
+                                      item.roomId,
+                              onTap: () {
+                                widget.controller.resetRoom(
+                                  Sites.allSites[item.siteId]!,
+                                  item.roomId,
+                                );
+                              },
+                              onLongPress: () => widget.onLongPress(item),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    if (Platform.isLinux ||
+                        Platform.isWindows ||
+                        Platform.isMacOS)
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: Obx(
+                          () => DesktopRefreshButton(
+                            refreshing: FollowService.instance.updating.value,
+                            onPressed: FollowService.instance.loadData,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

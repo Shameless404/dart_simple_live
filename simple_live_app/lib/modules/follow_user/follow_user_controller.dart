@@ -18,6 +18,7 @@ class FollowUserController extends BasePageController<FollowUser> {
 
   /// 0:全部 1:直播中 2:未直播
   var filterMode = FollowUserTag(id: "0", tag: "全部", userId: []).obs;
+  RxString searchQuery = RxString('');
   RxList<FollowUserTag> tagList = [
     FollowUserTag(id: "0", tag: "全部", userId: []),
     FollowUserTag(id: "1", tag: "直播中", userId: []),
@@ -39,9 +40,11 @@ class FollowUserController extends BasePageController<FollowUser> {
     );
     onUpdatedListStream =
         FollowService.instance.updatedListStream.listen((event) {
-      filterData();
+      if (searchQuery.value.isEmpty) filterData();
     });
     super.onInit();
+    filterData();
+    updateTagList();
   }
 
   @override
@@ -89,11 +92,32 @@ class FollowUserController extends BasePageController<FollowUser> {
       FollowService.instance.filterDataByTag(filterMode.value);
       list.assignAll(FollowService.instance.curTagFollowList);
     }
+    pageEmpty.value = list.isEmpty;
+    pageError.value = false;
+    pageLoadding.value = false;
+    canLoadMore.value = false;
   }
 
   void setFilterMode(FollowUserTag tag) {
     filterMode.value = tag;
+    searchQuery.value = '';
     filterData();
+  }
+
+  void onSearch(String query) {
+    searchQuery.value = query;
+    if (query.isEmpty) {
+      filterData();
+    } else {
+      final all = FollowService.instance.followList;
+      list.value = all.where((u) =>
+        u.userName.toLowerCase().contains(query.toLowerCase())
+      ).toList();
+      pageEmpty.value = list.isEmpty;
+      pageError.value = false;
+      pageLoadding.value = false;
+      canLoadMore.value = false;
+    }
   }
 
   void removeItem(FollowUser item) async {

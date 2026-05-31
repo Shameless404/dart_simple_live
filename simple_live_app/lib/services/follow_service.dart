@@ -54,6 +54,7 @@ class FollowService extends GetxService {
       loadData(updateStatus: false);
     });
     initTimer();
+    loadData();
     super.onInit();
   }
 

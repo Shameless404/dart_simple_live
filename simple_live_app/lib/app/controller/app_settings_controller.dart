@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/sites.dart';
+import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 
 import 'package:flutter/material.dart';
@@ -85,6 +86,11 @@ class AppSettingsController extends GetxController {
 
     // ignore: invalid_use_of_protected_member
     shieldList.value = LocalStorageService.instance.shieldBox.values.toSet();
+
+    BlockedUsersService.instance.init();
+    blockedUsers.value = Map.fromEntries(
+      BlockedUsersService.instance.entries.map((e) => MapEntry(e.key, e)),
+    );
 
     scaleMode.value = LocalStorageService.instance.getValue(
       LocalStorageService.kPlayerScaleMode,
@@ -380,6 +386,9 @@ class AppSettingsController extends GetxController {
         .setValue(LocalStorageService.kPlayerShowSuperChat, e);
   }
 
+  RxMap<String, BlockedUserEntry> blockedUsers = <String, BlockedUserEntry>{}.obs;
+  int get blockedUsersCount => blockedUsers.length;
+
   RxSet<String> shieldList = <String>{}.obs;
   void addShieldList(String e) {
     shieldList.add(e);
@@ -394,6 +403,19 @@ class AppSettingsController extends GetxController {
   Future clearShieldList() async {
     shieldList.clear();
     await LocalStorageService.instance.shieldBox.clear();
+  }
+
+  void blockUser(String platform, String userName, String message, {String anchorName = ''}) {
+    BlockedUsersService.instance.block(platform, userName, message, anchorName: anchorName);
+    final e = BlockedUsersService.instance.entries.firstWhere(
+      (e) => e.key == '$platform:$userName',
+    );
+    blockedUsers[e.key] = e;
+  }
+
+  void unblockUser(String platform, String userName) {
+    BlockedUsersService.instance.unblock(platform, userName);
+    blockedUsers.remove('$platform:$userName');
   }
 
   void setScaleMode(int value) {

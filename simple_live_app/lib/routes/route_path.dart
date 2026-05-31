@@ -24,6 +24,9 @@ class RoutePath {
   /// 弹幕关键词屏蔽
   static const kSettingsDanmuShield = "/settings/danmu/shield";
 
+  /// 拉黑管理
+  static const kSettingsBlockedUsers = "/settings/danmu/blocked_users";
+
   /// 其他设置
   static const kSettingsOther = "/settings/other";
 
