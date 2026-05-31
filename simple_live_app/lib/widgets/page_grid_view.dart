@@ -35,10 +35,10 @@ class PageGridView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Obx(
-      () => Stack(
-        children: [
-          EasyRefresh(
+    return Stack(
+      children: [
+        Obx(
+          () => EasyRefresh(
             header: MaterialHeader(
               completeDuration: const Duration(milliseconds: 400),
             ),
@@ -59,12 +59,13 @@ class PageGridView extends StatelessWidget {
               mainAxisSpacing: mainAxisSpacing,
             ),
           ),
-          Positioned(
+        ),
+        Obx(
+          () => Positioned(
             bottom: 0,
             left: 0,
             right: 0,
-            child: // 加载更多按钮
-                Visibility(
+            child: Visibility(
               visible: (Platform.isWindows ||
                       Platform.isLinux ||
                       Platform.isMacOS) &&
@@ -79,11 +80,12 @@ class PageGridView extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
+        ),
+        Obx(
+          () => Positioned(
             bottom: 12,
             right: 12,
-            child: // 加载更多按钮
-                Visibility(
+            child: Visibility(
               visible: (Platform.isWindows ||
                       Platform.isLinux ||
                       Platform.isMacOS) &&
@@ -105,25 +107,31 @@ class PageGridView extends StatelessWidget {
               ),
             ),
           ),
-          Offstage(
+        ),
+        Obx(
+          () => Offstage(
             offstage: !pageController.pageEmpty.value,
             child: AppEmptyWidget(
               onRefresh: () => pageController.refreshData(),
             ),
           ),
-          Offstage(
+        ),
+        Obx(
+          () => Offstage(
             offstage: !(showPageLoadding && pageController.pageLoadding.value),
             child: const AppLoaddingWidget(),
           ),
-          Offstage(
+        ),
+        Obx(
+          () => Offstage(
             offstage: !pageController.pageError.value,
             child: AppErrorWidget(
               errorMsg: pageController.errorMsg.value,
               onRefresh: () => pageController.refreshData(),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
