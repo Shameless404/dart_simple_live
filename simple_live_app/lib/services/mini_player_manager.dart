@@ -6,6 +6,8 @@ class MiniPlayerManager {
 
   final List<Process> _processes = [];
 
+  int nextIndex() => _processes.length;
+
   void register(Process p) {
     _processes.add(p);
     p.exitCode.whenComplete(() => _processes.remove(p));

@@ -7,6 +7,8 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/modules/follow_user/follow_user_controller.dart';
+import 'package:simple_live_app/services/mini_player_launcher.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/routes/app_navigation.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/filter_button.dart';
@@ -172,6 +174,7 @@ class FollowUserPage extends GetView<FollowUserController> {
                   onLongPress: () {
                     setFollowTagDialog(item);
                   },
+                  onRightClick: () => openMiniWindow(item, cascadeIndex: MiniPlayerManager.instance.nextIndex(), skipConfirm: true),
                 );
               },
             ),

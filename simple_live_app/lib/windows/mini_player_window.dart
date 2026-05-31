@@ -113,7 +113,7 @@ class _PinToggleButton extends StatefulWidget {
 }
 
 class _PinToggleButtonState extends State<_PinToggleButton> {
-  bool _isPinned = false;
+  bool _isPinned = true;
 
   @override
   void initState() {
@@ -203,6 +203,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   }
 
   Future<void> _play() async {
+    await windowManager.setAlwaysOnTop(true);
     if (widget.args.streamUrl.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 100));
       final sizeFuture = _waitForVideoSize();

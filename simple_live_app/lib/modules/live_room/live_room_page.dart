@@ -17,6 +17,7 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/live_room/player/player_controls.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
+import 'package:simple_live_app/services/mini_player_launcher.dart';
 import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
@@ -476,14 +477,13 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             Expanded(
               child: TabBarView(
                 children: [
-                  Obx(
-                    () => Stack(
-                      children: [
-                        ListView.separated(
+                  Stack(
+                    children: [
+                      Obx(
+                        () => ListView.separated(
                           controller: controller.scrollController,
                           separatorBuilder: (_, i) => Obx(
                             () => SizedBox(
-                              // *2与原来的EdgeInsets.symmetric(vertical: )做兼容
                               height: AppSettingsController
                                       .instance.chatTextGap.value *
                                   2,
@@ -496,11 +496,13 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                             return buildMessageItem(item, ctx);
                           },
                         ),
-                        Visibility(
-                          visible: controller.disableAutoScroll.value,
-                          child: Positioned(
-                            right: 12,
-                            bottom: 12,
+                      ),
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: Obx(
+                          () => Visibility(
+                            visible: controller.disableAutoScroll.value,
                             child: ElevatedButton.icon(
                               onPressed: () {
                                 controller.disableAutoScroll.value = false;
@@ -511,8 +513,8 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                   if (controller.site.id == Constant.kBiliBili)
                     buildSuperChats(),
@@ -797,7 +799,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   Widget buildFollowList() {
     return _FollowListWithSearch(
       controller: controller,
-      onLongPress: (item) => _openMiniWindow(item, skipConfirm: true),
+      onRightClick: (item) => _openMiniWindow(item, skipConfirm: true),
     );
   }
 
@@ -947,127 +949,18 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   void _openMiniWindow(FollowUser item, {bool skipConfirm = false}) async {
-    if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
-      return;
-    }
-
-    if (!skipConfirm) {
-      var confirm = await Get.dialog<bool>(
-        AlertDialog(
-          title: const Text("新窗口播放"),
-          content: Text("是否在新窗口中打开「${item.userName}」的直播间？"),
-          actions: [
-            TextButton(
-              onPressed: () => Get.back(result: false),
-              child: const Text("取消"),
-            ),
-            TextButton(
-              onPressed: () => Get.back(result: true),
-              child: const Text("确定"),
-            ),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-    }
-
-    var bilibiliCookie = '';
-    if (item.siteId == Constant.kBiliBili) {
-      bilibiliCookie = BiliBiliAccountService.instance.cookie;
-    }
-
-    // Resolve stream URL in main process before launching sub-process.
-    var streamUrl = '';
-    Map<String, String>? streamHeaders;
-    var danmakuSite = item.siteId;
-    var danmakuJson = '';
-    var userName = item.userName;
-    var title = '';
-    try {
-      if (item.siteId == Constant.kDouyin) {
-        final site = Sites.allSites[Constant.kDouyin]!.liveSite;
-        final detail = await site.getRoomDetail(roomId: item.roomId);
-        userName = detail.userName;
-        title = detail.title;
-        if (detail.danmakuData != null) {
-          danmakuJson = detail.danmakuData.toString();
-        }
-      } else {
-        final site = Sites.allSites[item.siteId]?.liveSite;
-        if (site != null) {
-          if (site is BiliBiliSite && bilibiliCookie.isNotEmpty) {
-            site.cookie = bilibiliCookie;
-          }
-          final detail = await site.getRoomDetail(roomId: item.roomId);
-          userName = detail.userName;
-          title = detail.title;
-          if (detail.danmakuData != null) {
-            if (item.siteId == 'douyu') {
-              danmakuJson = detail.danmakuData as String;
-            } else {
-              danmakuJson = detail.danmakuData.toString();
-            }
-          }
-          final qualities = await site.getPlayQualites(detail: detail);
-          if (qualities.isNotEmpty) {
-            final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[0]);
-            if (playUrl.urls.isNotEmpty) {
-              streamUrl = playUrl.urls[0];
-              streamHeaders = playUrl.headers;
-            }
-          }
-        }
-      }
-    } catch (e) { Log.logPrint(e); }
-
-    var settings = AppSettingsController.instance;
-    // Read cached mini player danmuSize override
-    var danmuSize = settings.danmuSize.value;
-    try {
-      final cacheFile = File('${Directory.systemTemp.path}\\simple_live_mini_danmu.json');
-      if (cacheFile.existsSync()) {
-        final cacheData = jsonDecode(cacheFile.readAsStringSync());
-        danmuSize = ((cacheData['danmuSize'] as num?)?.toDouble() ?? danmuSize)
-            .clamp(8.0, 48.0);
-      }
-    } catch (e) { debugPrint('MiniPlayer: read cache failed: $e'); }
-    var args = MiniPlayerArguments(
-      roomId: item.roomId,
-      siteId: item.siteId,
-      streamUrl: streamUrl,
-      streamHeaders: streamHeaders,
-      bilibiliCookie: bilibiliCookie,
-      danmuSize: danmuSize,
-      danmuSpeed: settings.danmuSpeed.value,
-      danmuArea: settings.danmuArea.value,
-      danmuOpacity: settings.danmuOpacity.value,
-      danmuFontWeight: settings.danmuFontWeight.value,
-      danmuStrokeWidth: settings.danmuStrokeWidth.value,
-      danmakuSite: danmakuSite,
-      danmakuJson: danmakuJson,
-      cascadeIndex: _miniWindowCascadeIndex,
-      userName: userName,
-      title: title,
-    );
+    await openMiniWindow(item, cascadeIndex: _miniWindowCascadeIndex, skipConfirm: skipConfirm);
     _miniWindowCascadeIndex++;
-
-    final env = Map<String, String>.from(Platform.environment);
-    env['SIMPLE_LIVE_MINIPLAYER'] = jsonEncode(args.toJson());
-    // Use detached mode so sub-process stdout/stderr don't fill pipe buffer
-    // (CoreLog + Dio interceptor writes to stdout, causing deadlock if unread)
-    final proc = await Process.start(Platform.executable, [], environment: env,
-        mode: ProcessStartMode.detached);
-    MiniPlayerManager.instance.register(proc);
   }
 }
 
 class _FollowListWithSearch extends StatefulWidget {
   final LiveRoomController controller;
-  final void Function(FollowUser item) onLongPress;
+  final void Function(FollowUser item) onRightClick;
 
   const _FollowListWithSearch({
     required this.controller,
-    required this.onLongPress,
+    required this.onRightClick,
   });
 
   @override
@@ -1147,7 +1040,7 @@ class _FollowListWithSearchState extends State<_FollowListWithSearch> {
                                   item.roomId,
                                 );
                               },
-                              onLongPress: () => widget.onLongPress(item),
+                              onRightClick: () => widget.onRightClick(item),
                             ),
                           );
                         },
