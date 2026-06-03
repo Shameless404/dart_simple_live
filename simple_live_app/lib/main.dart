@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' hide Size;
 import 'dart:io';
+import 'package:ffi/ffi.dart';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -77,7 +78,62 @@ void main() async {
         x = 0;
         y = screenH / dpr - initH;
       }
-      windowManager.setBounds(Rect.fromLTWH(x, y, initW, initH));
+      await windowManager.setBounds(Rect.fromLTWH(x, y, initW, initH));
+
+      // Remove OS title bar BEFORE runApp — C++ runner created the window before main()
+      // Safe for SetWindowPos(SWP_FRAMECHANGED) because no swap chain yet
+      final kernel32 = DynamicLibrary.open('kernel32.dll');
+      final getCurrentProcessId = kernel32.lookupFunction<
+          Uint32 Function(),
+          int Function()
+        >('GetCurrentProcessId');
+      final ourPid = getCurrentProcessId();
+      final findWindowW = user32.lookupFunction<
+          IntPtr Function(Pointer<Utf16>, Pointer<Utf16>),
+          int Function(Pointer<Utf16>, Pointer<Utf16>)
+        >('FindWindowW');
+      final findWindowExW = user32.lookupFunction<
+          IntPtr Function(IntPtr, IntPtr, Pointer<Utf16>, Pointer<Utf16>),
+          int Function(int, int, Pointer<Utf16>, Pointer<Utf16>)
+        >('FindWindowExW');
+      final getWindowThreadProcessId = user32.lookupFunction<
+          Uint32 Function(IntPtr, Pointer<Uint32>),
+          int Function(int, Pointer<Uint32>)
+        >('GetWindowThreadProcessId');
+      final getWindowLongPtrW = user32.lookupFunction<
+          IntPtr Function(IntPtr, Int32),
+          int Function(int, int)
+        >('GetWindowLongPtrW');
+      final setWindowLongPtrW = user32.lookupFunction<
+          IntPtr Function(IntPtr, Int32, IntPtr),
+          int Function(int, int, int)
+        >('SetWindowLongPtrW');
+      final setWindowPos = user32.lookupFunction<
+          Int32 Function(IntPtr, IntPtr, Int32, Int32, Int32, Int32, Int32),
+          int Function(int, int, int, int, int, int, int)
+        >('SetWindowPos');
+
+      const windowClass = 'FLUTTER_RUNNER_WIN32_WINDOW';
+      final classNamePtr = windowClass.toNativeUtf16(allocator: malloc);
+      final pidPtr = malloc<Uint32>();
+      int hwnd = findWindowW(classNamePtr, nullptr);
+      while (hwnd != 0) {
+        pidPtr.value = 0;
+        getWindowThreadProcessId(hwnd, pidPtr);
+        if (pidPtr.value == ourPid) {
+          const gwlStyle = -16;
+          const removeMask = 0x00CB0000;
+          final current = getWindowLongPtrW(hwnd, gwlStyle);
+          if (current != 0) {
+            setWindowLongPtrW(hwnd, gwlStyle, current & ~removeMask);
+            setWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0037);
+          }
+          break;
+        }
+        hwnd = findWindowExW(0, hwnd, classNamePtr, nullptr);
+      }
+      malloc.free(pidPtr);
+      malloc.free(classNamePtr);
     }
     runApp(MiniPlayerApp(args: args));
     return;

@@ -12,6 +12,8 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/services/mini_player_launcher.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:window_manager/window_manager.dart';
@@ -851,10 +853,14 @@ void showPlayerSettings(LiveRoomController controller) {
 }
 
 void showFollowUser(LiveRoomController controller) {
-  if (controller.isVertical.value) {
-    controller.showFollowUserSheet();
-    return;
-  }
+  final scrollCtrl = ScrollController(
+    initialScrollOffset: controller.followListScrollOffset,
+  );
+  scrollCtrl.addListener(() {
+    if (scrollCtrl.hasClients) {
+      controller.followListScrollOffset = scrollCtrl.offset;
+    }
+  });
 
   Utils.showRightDialog(
     title: "关注列表",
@@ -866,6 +872,7 @@ void showFollowUser(LiveRoomController controller) {
           RefreshIndicator(
             onRefresh: FollowService.instance.loadData,
             child: ListView.builder(
+              controller: scrollCtrl,
               itemCount: FollowService.instance.liveList.length,
               itemBuilder: (_, i) {
                 var item = FollowService.instance.liveList[i];
@@ -875,12 +882,19 @@ void showFollowUser(LiveRoomController controller) {
                     playing: controller.rxSite.value.id == item.siteId &&
                         controller.rxRoomId.value == item.roomId,
                     onTap: () {
+                      controller.followListScrollOffset =
+                          scrollCtrl.hasClients ? scrollCtrl.offset : 0;
                       Utils.hideRightDialog();
                       controller.resetRoom(
                         Sites.allSites[item.siteId]!,
                         item.roomId,
                       );
                     },
+                    onRightClick: () => openMiniWindow(
+                      item,
+                      cascadeIndex: MiniPlayerManager.instance.nextIndex(),
+                      skipConfirm: true,
+                    ),
                   ),
                 );
               },
@@ -1048,3 +1062,5 @@ class _PlayerSuperChatOverlayState extends State<PlayerSuperChatOverlay> {
     );
   }
 }
+
+

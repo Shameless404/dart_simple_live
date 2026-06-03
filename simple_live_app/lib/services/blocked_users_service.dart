@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+
 class BlockedUserEntry {
   final String key;
   final String userName;
@@ -48,14 +50,11 @@ class BlockedUsersService {
   String get _filePath {
     final exePath = Platform.resolvedExecutable;
     final dir = File(exePath).parent.path;
-    return '$dir/blocked_users.json';
+    return '${dir}${Platform.pathSeparator}blocked_users.json';
   }
 
   void init() {
     _file = File(_filePath);
-    if (!_file!.existsSync()) {
-      _file!.writeAsStringSync('');
-    }
     _load();
   }
 
@@ -69,7 +68,8 @@ class BlockedUsersService {
         _entries = {};
         return;
       }
-      final raw = _file!.readAsStringSync().trim();
+      final bytes = _file!.readAsBytesSync();
+      final raw = utf8.decode(bytes, allowMalformed: true).trim();
       if (raw.isEmpty) {
         _entries = {};
         return;
@@ -110,8 +110,12 @@ class BlockedUsersService {
     );
     _entries[entry.key] = entry;
     try {
-      _file!.writeAsStringSync('\n${jsonEncode(entry.toJson())}',
-          mode: FileMode.append);
+      if (!_file!.existsSync()) {
+        _file!.writeAsStringSync(jsonEncode(entry.toJson()));
+      } else {
+        _file!.writeAsStringSync('\n${jsonEncode(entry.toJson())}',
+            mode: FileMode.append);
+      }
     } catch (_) {}
   }
 
@@ -124,4 +128,50 @@ class BlockedUsersService {
     ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
   int get count => _entries.length;
+}
+
+PopupMenuItem<void> buildBlockUserMenuItem(
+    String userName, VoidCallback onTap) {
+  return PopupMenuItem(
+    height: 36,
+    child: Text(
+      "拉黑「$userName」",
+      style: const TextStyle(
+        color: Colors.red,
+        fontWeight: FontWeight.w500,
+        fontSize: 14,
+      ),
+    ),
+    onTap: onTap,
+  );
+}
+
+void showBlockUserToast(BuildContext context, String userName) {
+  final overlay = Overlay.of(context, rootOverlay: true);
+  final message = "拉黑 $userName 成功";
+  late OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => Positioned(
+      top: 20,
+      right: 20,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            message,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+          ),
+        ),
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  Future.delayed(const Duration(seconds: 1), () {
+    if (entry.mounted) entry.remove();
+  });
 }

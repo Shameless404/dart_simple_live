@@ -24,6 +24,8 @@ import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
 import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/services/mini_player_launcher.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -60,6 +62,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   /// 滚动控制
   final ScrollController scrollController = ScrollController();
+  double followListScrollOffset = 0.0;
 
   /// 聊天信息
   RxList<LiveMessage> messages = RxList<LiveMessage>();
@@ -864,52 +867,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     );
   }
 
-  void showFollowUserSheet() {
-    Utils.showBottomSheet(
-      title: "关注列表",
-      child: Obx(
-        () => Stack(
-          children: [
-            RefreshIndicator(
-              onRefresh: FollowService.instance.loadData,
-              child: ListView.builder(
-                itemCount: FollowService.instance.liveList.length,
-                itemBuilder: (_, i) {
-                  var item = FollowService.instance.liveList[i];
-                  return Obx(
-                    () => FollowUserItem(
-                      item: item,
-                      playing: rxSite.value.id == item.siteId &&
-                          rxRoomId.value == item.roomId,
-                      onTap: () {
-                        Get.back();
-                        resetRoom(
-                          Sites.allSites[item.siteId]!,
-                          item.roomId,
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
-            ),
-            if (Platform.isLinux || Platform.isWindows || Platform.isMacOS)
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: Obx(
-                  () => DesktopRefreshButton(
-                    refreshing: FollowService.instance.updating.value,
-                    onPressed: FollowService.instance.loadData,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void showAutoExitSheet() {
     if (AppSettingsController.instance.autoExitEnable.value &&
         !delayAutoExit.value) {
@@ -1102,3 +1059,5 @@ ${error?.stackTrace}''');
     super.onClose();
   }
 }
+
+

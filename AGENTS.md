@@ -1,5 +1,15 @@
 # dart_simple_live — Project Context
 
+## ⚠️ 用户编码偏好（每次必须先看）
+- **禁止中间状态变量：** 不要 `bool _xxx = false` ／ `double _xxx = 0.0` 等 `= false` / `= 0.0` 的中间副本变量
+- **状态直读权威源：** UI 从源头直读（`player.state.playing` / `player.state.volume`），不建中间缓存
+- **纯 null-form 隐藏：** widget 隐藏就是不在图树（`if (condition)`），不用 `Offstage` / `Visibility` / `Opacity(0)` / `Positioned(bottom: -48)` 等"假隐藏"
+- **subscription 只触发 setState：** stream subscription 只调 `setState((){})` 不存值
+- **例外——UI 交互变量（滑块/拖拽）：** 音量滑块需要 `_volume` 作为滑块自身状态，不是 `player.state.volume` 的副本。
+  原因是 `player.stream.volume` 是异步的（platform channel IPC），拖拽过程中无法靠它提供实时视觉反馈。
+  规则：交互变量是 UI 控件的自持状态，不是 player state 的拷贝；`_volumeSub` 事件流会双向同步。其他交互控件同理（如拖动条）。
+- **`_lastVolume` 例外：** 静音恢复需要保存静音前音量，`_lastVolume` 不是 player.state 的副本，是用户意图的中间态。这个是允许的。
+
 ## 触发子进程
 
 当我说 `[子进程]` 时，表示正在派独立 agent 执行任务，不占主对话上下文。
@@ -70,8 +80,15 @@ $env:Path = "D:\tools;$env:Path"
 ```powershell
 Remove-Item -LiteralPath "D:\simple_live" -Recurse -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
-xcopy "simple_live_app\build\windows\x64\runner\Release" "D:\simple_live\" /E /I /Y /Q
+Get-ChildItem "simple_live_app\build\windows\x64\runner\Release" | ForEach-Object {
+  if ($_.PSIsContainer) {
+    Copy-Item -Path $_.FullName -Destination "D:\simple_live\$($_.Name)" -Recurse -Force
+  } else {
+    Copy-Item -Path $_.FullName -Destination "D:\simple_live\" -Force
+  }
+}
 ```
+> **注意：** 不能用 `Copy-Item -Path "Release\*" -Destination "D:\simple_live\" -Recurse`（通配符+Recurse 会扁平化 `data\` 目录结构，导致缺少 `data\app.so` 而闪退）。不能用 `xcopy`（PowerShell 下参数不兼容）。必须用上述 `ForEach-Object` 逐项复制。
 
 ### Proxy
 - SOCKS5 proxy on port 7897, set via `cmd_init.bat` (AutoRun script on cmd startup)
@@ -202,7 +219,7 @@ var setCookieHeaders = result.headers["set-cookie"];
 打开 `simple_live_core/lib/src/huya_site.dart`，搜 `[虎牙参数]` 可以看到所有关键行。
 对照 https://github.com/wbt5/real-url 的 `huya.py` 更新。
 
-**共有 4 处 `[虎牙参数]` 位置（类顶部注释覆盖范围）：**
+**共有 5 处 `[虎牙参数]` 位置（类顶部注释覆盖范围）：**
 1. `kUserAgent` — 房间页爬虫 UA
 2. `HYSDK_UA` — 直播流请求 UA，最常改
 3. `tupClient` — Tars RPC 接口地址
@@ -232,9 +249,49 @@ var setCookieHeaders = result.headers["set-cookie"];
 
 **注意：**
 - 子进程是完整 `simple_live_app.exe`，不用 Hive / GetX / dio
-- 弹幕一直显示，无开关按钮（media_kit controls 会盖住自定义按钮）
+- 弹幕默认关闭，标题栏有开关按钮（`_buildDanmakuToggle()`）
 - 每个子进程 ~200-400MB RAM，按需使用
 - 环境变量 JSON 小于 Windows 32KB 限制
+
+### ⚠️ 子窗口独立原则（不可违反）
+- **子窗口和主窗口在 UI 上完全无关** —— 子窗口就是一个独立的新播放器控件
+- 二者除了启动时的环境变量 JSON 数据传输外，**不能有任何共享状态**
+- **禁止：** 共享 GetX 实例、共享 Dio 单例、共享 Hive 实例、共享任何 Dart 对象
+- **禁止：** 子进程读写主进程的内存或文件（`BlockedUsersService` 的 JSON 文件是唯一跨进程存储，且只读不写冲突）
+- **允许：** 主进程 `Process.start` 传环境变量 → 子进程 `Platform.environment` 读取
+- **允许：** 主进程 `MiniPlayerManager` 记录子进程 PID（用于 cascade 索引分配 + 主窗口关闭时 kill）—— 只跟踪 PID，不传 UI 状态
+- **子进程只传 FFI 参数（SetWindowLongPtrW），不传 UI 状态**
+
+### 子窗口标题栏结构（不可忘记）
+- **需求：去掉原生 OS 标题栏，保留自定义标题栏**
+- 原生 OS 标题栏通过 `SetWindowLongPtrW` 在 `main.dart` 中 `runApp` 之前移除（保留 `WS_THICKFRAME` 可调边框）：
+  - **唯一一处：`main.dart` mini-player block 中 `runApp(...)` 之前，`windowManager.setBounds` 之后**
+  - 时序：C++ Flutter runner 在 `main()` 运行前已创建好窗口（`FLUTTER_RUNNER_WIN32_WINDOW`），`FindWindowW` 一定找得到，不需要重试
+  - **PID 过滤：** `FindWindowW` 是全局窗口搜索（跨进程），必须用 `GetCurrentProcessId` + `GetWindowThreadProcessId` 确认找到的 HWND 属于当前子进程，防止误删主进程标题栏
+  - **加上 `SetWindowPos(SWP_FRAMECHANGED)`** 重算 NC 区消掉 31px 空位。此时 swap chain 未创建，不白屏
+- `mini_player_window.dart` **没有**移除逻辑（不再需要 `_removeOsTitleBar`）
+- ⚠️ **removeMask 必须是 `0x00CB0000` 不是 `0x00CF0000`**：`0x00CF0000` 多包含 `WS_SIZEBOX(0x040000)`，会删除可调边框导致无法拖拽大小
+- 自定义标题栏 36px 高，黑渐变背景，`_showControls` 控制显示/隐藏（3秒延迟）
+- 布局：`Stack(渐变 + DragToMoveArea(左半文字) + Positioned(右半按钮))`
+- **`DragToMoveArea` 只包裹文字区域（left:0, right:200），按钮用单独 `Positioned(right:0)` 显示，物理上不在 DragToMoveArea 内**
+- **禁止用 DragToMoveArea 包裹按钮** —— DragToMoveArea 的 startDragging 会拦截 GestureDetector
+- 标题文字用 `widget.args.userName`（主播名），不是 `title`
+- 按钮从右到左：关闭（`Icons.close`）→ 最大化/还原（`Icons.crop_square`）→ 最小化（`Icons.minimize`）→ 置顶（`_PinToggleButton`）→ 弹幕开关（`_buildDanmakuToggle()`）
+- 关闭按钮点击：`globalMiniPlayer.dispose()` + `windowManager.setPreventClose(false)` + `windowManager.destroy()`
+
+### 子窗口自定义控件栏 — 轻量级覆盖 + CPU 回归修复（2026-06-02）
+- **🔥 CPU 回归根因：`MaterialDesktopVideoControlsTheme` 包裹 `Video` + `controls: MaterialDesktopVideoControls`** 导致每个子窗口 ~11 个 stream subscriptions + `AnimatedOpacity` + 复杂子树，10 个子窗口仅能开 5 个
+- **修复方案：** 永久 `controls: null`，完全移除 `MaterialDesktopVideoControlsTheme`
+- **自定义控件栏**（`_buildControlsBar`）：底部 48px 渐变条，包含播放/暂停 + 音量图标 + 音量滑动条
+  - 纯 null-form（`if (_showControls)`），hover 才挂载，离开 3 秒后销毁
+- **`_volume` 是滑块自身状态（不是 player.state.volume 的副本）：**
+  - `player.stream.volume` 是异步的（platform channel IPC），拖拽时不能依赖它提供实时反馈
+  - `_volume` 是 Slider widget 的交互变量，`onChanged` 更新 `_volume` + `player.setVolume()` + `setState` 同步
+  - `_volumeSub` 在 volume 流变化时写入 `_volume = v` 双向同步
+  - 播放/暂停 icon 用 `player.state.playing` 直读（足够快）
+- `_showControls` 同时控制**自定义标题栏** + **控件栏**的挂载/销毁
+- **DanmakuScreen** 定位 `top: _showControls ? 36 : 0`（避开标题栏），`bottom: _showControls ? 48 : 0`（避开控件栏）
+- 鼠标进入时 `danmakuController?.pause()`（让用户看清视频），离开时 `resume()`
 
 ## 抖音子窗口修复思路
 
@@ -263,7 +320,7 @@ var setCookieHeaders = result.headers["set-cookie"];
 
 **当用户说"弹幕不显示"时：**
 - 主窗口: 检查 `player_controls.dart` 的 `buildDanmuView()` 是否多层嵌套/遮挡
-- 子窗口: 弹幕一直显示（无法开关），如果子窗口不显示弹幕，检查 `mini_player_window.dart` 的 `_connectDanmaku()` 和 `danmakuJson` 是否有数据
+- 子窗口: 弹幕默认关闭（需点标题栏眼睛按钮开启）。如不显示，检查 `_connectDanmaku()` 和 `danmakuJson` 是否有数据
 
 **当用户说"虎牙坏了"时：**
 - 打开 `simple_live_core/lib/src/huya_site.dart`，搜 `[虎牙参数]` 更新 UA/Tars 接口
@@ -367,10 +424,12 @@ class _MiniWindowCloseHandler extends WindowListener {
 - 弹幕 ON 但无消息时 Timer 仍跑但 `setState` 被跳过，`_startTick` 循环仅 `Future.delayed(100ms)`
 
 ## 子窗口默认状态 — CPU 零额外开销
-- **弹幕：** 默认 OFF，`_danmakuEnabled = false`，`DanmakuScreen` 不在 widget 树
-- **视频：** `Video(controls: null, wakelock: false)`，无原生 controls 子树，仅 mpv 解码
-- **控制栏：** `_showControls = false` → build 返回 null，鼠标进入才挂载
-- 所有平台统一：弹幕/控制栏默认不在树，无 Timer/Stream 开销
+- **音量：** 初始必须 `player.setVolume(0.0)` —— 默认静音（media_kit范围：0.0-100.0，100.0为最大）
+- **播放器：** 永久 `controls: null`（无原生控件子树），仅 mpv 解码
+- **弹幕：** 默认关闭（`_danmakuUserEnabled = false`），不在树中。开启后始终在树中
+- **标题栏：** 默认不显示，null-form（`if (_showControls)`），鼠标进入才挂载
+- **控件栏：** 默认不显示，null-form（`if (_showControls)`），与标题栏同步挂载/销毁
+- 所有平台统一：弹幕/标题栏/控件栏默认不在树，无 Timer/Stream 开销
 
 ## 置顶 toggle 修复
 - `_PinToggleButton.onTap` 必须先 `await windowManager.setAlwaysOnTop(newValue)` 再 `setState`
@@ -416,6 +475,7 @@ class _MiniWindowCloseHandler extends WindowListener {
 **pub cache 追加修改（canvas_danmaku 0.2.7）：**
 1. `danmaku_content_item.dart` — 加 `userName` 字段
 2. `danmaku_screen.dart` — 移除 `IgnorePointer`，加 `GestureDetector` + hit-test + `onDanmakuSecondaryTap` 回调
+3. `danmaku_screen.dart` — `GestureDetector` 必须加 `behavior: HitTestBehavior.translucent`，否则 GestureDetector 参与 hit test 会挡住父级 `MouseRegion` 的 hover 事件，导致弹幕开启时子窗口 `onEnter` 不触发（鼠标必须移到最底下才能显示播放器控件）
 
 **子窗口区别：** 主窗口走聊天右击（`player_controls.dart` 已无弹幕右击），子窗口走弹幕右击。
 **子窗口盾词缺失：** 子窗口 `_setupDanmakuHandlers` 只有拉黑过滤没有盾词过滤（用户已知）。
@@ -465,3 +525,78 @@ class _MiniWindowCloseHandler extends WindowListener {
 - **时序：** `setBounds` + `SetWindowPos` 已执行完毕 → `runApp` → Flutter 首帧 → `ShowWindow` → 窗口第一次出现就在正确位置（零瞬移闪屏）
 - **公式：** `cascadeIndex` (0, 1, 2...) 传入子进程，`x=step*idx`, `y=屏幕高-窗口高-(step*idx)`, 超出边界重置到最左下
 - `mini_player_window.dart` 已无 `_setInitialPosition()`，`initState` 只调 `_play()`，视频尺寸就绪后 `_resizeWindow` 调 `setSize`（`SWP_NOMOVE` 保留位置）
+
+## 子窗口声音调试（2026-06-02）
+
+### 问题特征
+- 子窗口播放器完全无声，即使音量滑块显示有值
+- 音量滑块可以拖动，但实际播放音量为0
+- 问题出现在自定义控件栏实现后
+
+### 根本原因
+**media_kit volume API 范围是 0.0-100.0，不是 0.0-1.0！**
+
+- `player.setVolume(0.0-100.0)` — 正确范围
+- `_volume` 滑块状态用 0.0-1.0 — UI 习惯
+- 传错范围导致 `player.setVolume(0.5)`（几乎静音）
+
+### 修复方案
+1. **滑块转换**：`_volume = v / 100.0` + `player.setVolume(v)`（直接传 0-100）
+2. **静音逻辑**：保存 `_lastVolume`，点击时恢复
+3. **初始静音**：`player.setVolume(0.0)` + `_volume = 0.0`
+
+### 代码模式
+```dart
+// Volume 状态
+double _volume = 0.0;      // 滑块自身状态（0.0-1.0）
+double _lastVolume = 0.5;   // 静音前音量
+
+// Stream 同步
+_volumeSub = player.stream.volume.listen((v) {
+  _volume = v / 100.0;  // media_kit 0-100 → _volume 0-1
+  setState(() {});
+});
+
+// 滑块 onChanged
+onChanged: (v) {
+  _volume = v / 100.0;  // UI 习惯 0-1
+  player.setVolume(v);   // 直接传 0-100 给 media_kit
+  setState(() {});
+}
+
+// 静音按钮
+if (_volume > 0) {
+  _lastVolume = _volume;
+  _volume = 0.0;
+} else {
+  _volume = _lastVolume;
+}
+player.setVolume(_volume * 100.0);  // 转换后传给 media_kit
+```
+
+### 调试步骤
+1. **检查 media_kit 范围**：确认 0.0-100.0（不是 0.0-1.0）
+2. **验证转换**：确保 `player.setVolume()` 接收 0-100 值
+3. **测试固定音量**：直接 `player.setVolume(50)` 测试半音量
+4. **检查静音恢复**：静音后恢复的音量是否正确
+
+**当用户说"子窗口没声音"时：**
+- 检查是否所有 `player.setVolume()` 都传 0-100 值
+- 暂时改用 `player.setVolume(50)` 测试半音量是否生效
+- 确认 volume stream 是否正确同步 `_volume`
+
+**当用户说"音量滑块没反应"时：**
+- 检查 `_volumeSub` 是否正确设置（`_volume = v / 100.0`）
+- 验证 `player.setVolume(v)` 直接传滑块 0-100 值
+- 确认滑块 `value: _volume * 100` 显示正确
+
+## 滚动位置恢复教训（2026-05-31）
+- **根因：** `followListScrollOffset` 只在 `onTap` 保存，点击遮罩关闭 Dialog 不保存 → 下次打开从0开始
+- **正确做法：** `ScrollController(initialScrollOffset: savedOffset)` + `scrollCtrl.addListener(() => {if (scrollCtrl.hasClients) controller.followListScrollOffset = scrollCtrl.offset;})`
+- **不要搞复杂方案：** 不要用 `_ScrollRestore` + `jumpTo` + 递归重试。监听器持续保存 offset 是最简单可靠的方案
+- **排查原则：** 遇到"某状态没保留"，先检查所有退出路径是否都保存了状态，不要只盯着最明显的那个入口看
+
+**当用户说"关注列表滚动位置不对"时：**
+- 检查 Dialog 的 `ScrollController` 有没有 `addListener` 持续保存 offset
+- 检查 `initialScrollOffset` 有没有传对
+- 不要搞 `_ScrollRestore` / `jumpTo` 之类的方案

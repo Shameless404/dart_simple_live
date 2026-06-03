@@ -98,6 +98,7 @@ class MiniPlayerApp extends StatelessWidget {
     return MaterialApp(
       title: 'Simple Live',
       debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark().copyWith(scaffoldBackgroundColor: Colors.black),
       home: MiniPlayerPage(args: args),
     );
   }
@@ -137,14 +138,11 @@ class _PinToggleButtonState extends State<_PinToggleButton> {
       child: Container(
         width: 36,
         height: 36,
-        decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(8),
-        ),
+        alignment: Alignment.center,
         child: Icon(
           Icons.push_pin,
           color: _isPinned ? Colors.amber : Colors.white70,
-          size: 20,
+          size: 18,
         ),
       ),
     );
@@ -164,13 +162,16 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   late final VideoController videoController;
   DanmakuController? danmakuController;
   LiveDanmaku? liveDanmaku;
-  bool _isMouseInside = false;
+  bool _isOverlayActive = false;
   bool _danmakuUserEnabled = false;
-  bool _isPlaying = false;
-  double _volume = 100;
-  bool _isFullscreen = false;
+  bool _showControls = false;
+  bool _isMaximized = false;
   late double _danmuSize;
+  double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
+  double _lastVolume = 0.5;  // 静音前音量，用于恢复
   Timer? _cleanupTimer;
+  StreamSubscription? _playingSub;
+  StreamSubscription? _volumeSub;
 
   @override
   void initState() {
@@ -183,10 +184,17 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         logLevel: MPVLogLevel.error,
       ),
     );
+    player.setVolume(0.0);  // 默认静音（media_kit范围：0.0-100.0）
+    _volume = 0.0;
     globalMiniPlayer = player;
     videoController = VideoController(player);
-    player.setVolume(0);
-    _volume = 0;
+    _playingSub = player.stream.playing.listen((_) {
+      if (mounted) setState(() {});
+    });
+    _volumeSub = player.stream.volume.listen((v) {
+      _volume = v / 100.0;  // media_kit 发 0.0-100.0，_volume 用 0.0-1.0
+      if (mounted) setState(() {});
+    });
     windowManager.setTitle("${widget.args.userName} - ${widget.args.title}");
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _play();
@@ -197,6 +205,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   void dispose() {
     globalMiniPlayer = null;
     _cleanupTimer?.cancel();
+    _playingSub?.cancel();
+    _volumeSub?.cancel();
     liveDanmaku?.stop();
     player.dispose();
     super.dispose();
@@ -212,7 +222,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         httpHeaders: widget.args.streamHeaders,
       ));
       await player.play();
-      _isPlaying = true;
       if (mounted) setState(() {});
       final size = await sizeFuture;
       if (size != null) _resizeWindow(size.$1, size.$2);
@@ -238,7 +247,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         httpHeaders: playUrl.headers,
       ));
       await player.play();
-      _isPlaying = true;
       if (mounted) setState(() {});
       final size = await sizeFuture;
       if (size != null) _resizeWindow(size.$1, size.$2);
@@ -352,65 +360,58 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   void _onDanmakuSecondaryTap(DanmakuContentItem item, Offset globalPosition) {
     if (item.userName == null || item.userName!.isEmpty) return;
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
-    final localPos = renderBox.globalToLocal(globalPosition);
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        localPos.dx, localPos.dy, localPos.dx, localPos.dy,
-      ),
-      items: [
-        PopupMenuItem(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.block, size: 18, color: Colors.red[400]),
-              const SizedBox(width: 8),
-              Text("拉黑用户", style: TextStyle(color: Colors.red[400])),
-            ],
-          ),
-          onTap: () {
-            BlockedUsersService.instance.block(
-              widget.args.danmakuSite,
-              item.userName!,
-              item.text,
-              anchorName: widget.args.userName,
-            );
-            _showToast("拉黑 ${item.userName} 成功");
-          },
-        ),
-      ],
-    );
-  }
-
-  void _showToast(String message) {
     final overlay = Overlay.of(context, rootOverlay: true);
-    late OverlayEntry entry;
-    entry = OverlayEntry(
-      builder: (_) => Positioned(
-        top: 20,
-        right: 20,
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black87,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              message,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
+    _isOverlayActive = true;
+    late OverlayEntry menuEntry;
+    menuEntry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {
+                menuEntry.remove();
+                _isOverlayActive = false;
+              },
+              child: Container(color: Colors.transparent),
             ),
           ),
-        ),
+          Positioned(
+            left: globalPosition.dx,
+            top: globalPosition.dy,
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: GestureDetector(
+                  onTap: () {
+                    BlockedUsersService.instance.block(
+                      widget.args.danmakuSite,
+                      item.userName!,
+                      item.text,
+                      anchorName: widget.args.userName,
+                    );
+                    showBlockUserToast(context, item.userName!);
+                    menuEntry.remove();
+                    _isOverlayActive = false;
+                  },
+                  child: Text(
+                    "拉黑「${item.userName}」",
+                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500, fontSize: 14),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
-    overlay.insert(entry);
-    Future.delayed(const Duration(seconds: 1), () {
-      if (entry.mounted) entry.remove();
+    overlay.insert(menuEntry);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      danmakuController?.pause();
     });
   }
 
@@ -426,20 +427,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     setState(() {});
   }
 
-  void _togglePlayPause() {
-    if (_isPlaying) {
-      player.pause();
-      setState(() => _isPlaying = false);
-    } else {
-      player.play();
-      setState(() => _isPlaying = true);
-    }
-  }
-
-  void _toggleFullscreen() {
-    _isFullscreen = !_isFullscreen;
-    windowManager.setFullScreen(_isFullscreen);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -447,31 +434,110 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       backgroundColor: Colors.black,
       body: MouseRegion(
         onEnter: (_) {
-          _isMouseInside = true;
           _cleanupTimer?.cancel();
-          _cleanupTimer = null;
-          setState(() {});
+          danmakuController?.pause();
+          _showControls = true;
+          if (mounted) setState(() {});
         },
         onExit: (_) {
-          _isMouseInside = false;
+          if (!_isOverlayActive) {
+            danmakuController?.resume();
+          }
           _cleanupTimer?.cancel();
           _cleanupTimer = Timer(const Duration(seconds: 3), () {
+            if (!_isOverlayActive) {
+              _showControls = false;
+            }
             if (mounted) setState(() {});
           });
         },
-        child: Stack(
-          children: [
-            Video(
-              controller: videoController,
-              fill: Colors.black,
-              controls: null,
-              wakelock: false,
-            ),
-            if (_danmakuUserEnabled)
+          child: Stack(
+            children: [
+              // Video player — no native controls overlay (CPU optimization)
               Positioned.fill(
-                child: MouseRegion(
-                  onEnter: (_) => danmakuController?.pause(),
-                  onExit: (_) => danmakuController?.resume(),
+                key: const ValueKey('video'),
+                child: Video(
+                  controller: videoController,
+                  fill: Colors.black,
+                  controls: null,
+                  wakelock: false,
+                ),
+              ),
+              // Custom title bar (visible on hover) — replaces OS title bar
+              if (_showControls)
+                Positioned(
+                  key: const ValueKey('title_bar'),
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 36,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.black87, Colors.transparent],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 200,
+                        bottom: 0,
+                        child: DragToMoveArea(
+                          child: SizedBox.expand(
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: Text(
+                                  "${widget.args.userName} - ${widget.args.title}",
+                                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildDanmakuToggle(),
+                            const _PinToggleButton(),
+                            _TitleBarButton(Icons.minimize, () => windowManager.minimize()),
+                            _TitleBarButton(
+                              _isMaximized ? Icons.filter_none : Icons.crop_square,
+                              _toggleMaximize,
+                            ),
+                            _TitleBarCloseButton(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              // Custom controls bar (null-form, only in tree on hover)
+              if (_showControls)
+                _buildControlsBar(),
+              // Danmaku — always in tree when enabled, avoids title bar & controls bar on hover
+              if (_danmakuUserEnabled)
+                Positioned(
+                  key: const ValueKey('danmaku'),
+                  top: _showControls ? 36 : 0,
+                  left: 0,
+                  right: 0,
+                  bottom: _showControls ? 48 : 0,
                   child: DanmakuScreen(
                     createdController: (c) => danmakuController = c,
                     option: DanmakuOption(
@@ -485,27 +551,91 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                     onDanmakuSecondaryTap: (item, pos) => _onDanmakuSecondaryTap(item, pos),
                   ),
                 ),
-              ),
-            if (_isMouseInside)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: _buildControlsBar(),
-              ),
-            if (_isMouseInside)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildDanmakuToggle(),
-                    const SizedBox(width: 8),
-                    const _PinToggleButton(),
-                  ],
+            ],
+          ),
+      ),
+    );
+  }
+
+  Widget _buildControlsBar() {
+    return Positioned(
+      key: const ValueKey('controls_bar'),
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 48,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [Colors.black87, Colors.transparent],
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 4),
+            // Play/Pause button
+            GestureDetector(
+              onTap: () => player.playOrPause(),
+              child: Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                child: Icon(
+                  player.state.playing ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                  size: 24,
                 ),
               ),
+            ),
+            const SizedBox(width: 4),
+            // Volume icon (toggle mute)
+            GestureDetector(
+              onTap: () {
+                if (_volume > 0) {
+                  _lastVolume = _volume;  // 保存当前音量
+                  _volume = 0.0;  // 静音
+                } else {
+                  _volume = _lastVolume;  // 恢复静音前音量
+                }
+                player.setVolume(_volume * 100.0);  // 转换成 media_kit 范围
+                setState(() {});
+              },
+              child: Container(
+                width: 32,
+                height: 40,
+                alignment: Alignment.center,
+                child: Icon(
+                  _volume > 0 ? Icons.volume_up : Icons.volume_off,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+              ),
+            ),
+            // Volume slider
+            Expanded(
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: Colors.white,
+                  inactiveTrackColor: Colors.white24,
+                  thumbColor: Colors.white,
+                  overlayColor: Colors.white12,
+                  trackHeight: 3,
+                ),
+                child: Slider(
+                  value: _volume * 100,  // 滑块显示 0-100%
+                  min: 0,
+                  max: 100,
+                  onChanged: (v) {
+                    _volume = v / 100.0;  // 转换成 0.0-1.0
+                    player.setVolume(v);  // 直接用 0-100 的值，media_kit 正确范围
+                    setState(() {});
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
           ],
         ),
       ),
@@ -518,100 +648,53 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       child: Container(
         width: 36,
         height: 36,
-        decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(8),
-        ),
+        alignment: Alignment.center,
         child: Icon(
           _danmakuUserEnabled ? Icons.visibility : Icons.visibility_off,
           color: Colors.white70,
-          size: 20,
+          size: 18,
         ),
       ),
     );
   }
 
-  Widget _buildControlsBar() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [Colors.black87, Colors.transparent],
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          IconButton(
-            icon: Icon(
-              _isPlaying ? Icons.pause : Icons.play_arrow,
-              color: Colors.white,
-              size: 24,
-            ),
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            padding: EdgeInsets.zero,
-            onPressed: _togglePlayPause,
-          ),
-          _buildVolumeControl(),
-          const Spacer(),
-          IconButton(
-            icon: Icon(
-              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-              color: Colors.white,
-              size: 24,
-            ),
-            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-            padding: EdgeInsets.zero,
-            onPressed: _toggleFullscreen,
-          ),
-        ],
+  Widget _TitleBarButton(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        child: Icon(icon, color: Colors.white70, size: 16),
       ),
     );
   }
 
-  Widget _buildVolumeControl() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(
-            _volume > 0 ? Icons.volume_up : Icons.volume_off,
-            color: Colors.white,
-            size: 20,
-          ),
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          padding: EdgeInsets.zero,
-          onPressed: () {
-            final newVol = _volume > 0 ? 0.0 : 100.0;
-            player.setVolume(newVol);
-            setState(() => _volume = newVol);
-          },
-        ),
-        SizedBox(
-          width: 100,
-          child: SliderTheme(
-            data: const SliderThemeData(
-              trackHeight: 3,
-              thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
-              activeTrackColor: Colors.white,
-              inactiveTrackColor: Colors.white38,
-              thumbColor: Colors.white,
-              overlayColor: Colors.white24,
-            ),
-            child: Slider(
-              value: _volume,
-              min: 0,
-              max: 100,
-              onChanged: (v) {
-                player.setVolume(v);
-                setState(() => _volume = v);
-              },
-            ),
-          ),
-        ),
-      ],
+  Widget _TitleBarCloseButton() {
+    return GestureDetector(
+      onTap: () async {
+        await globalMiniPlayer?.dispose();
+        globalMiniPlayer = null;
+        await windowManager.setPreventClose(false);
+        await windowManager.destroy();
+      },
+      child: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        child: const Icon(Icons.close, color: Colors.white70, size: 18),
+      ),
     );
+  }
+
+  void _toggleMaximize() {
+    if (_isMaximized) {
+      windowManager.unmaximize();
+      _isMaximized = false;
+    } else {
+      windowManager.maximize();
+      _isMaximized = true;
+    }
+    if (mounted) setState(() {});
   }
 }

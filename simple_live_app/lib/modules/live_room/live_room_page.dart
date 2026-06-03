@@ -551,51 +551,15 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             details.globalPosition.dx, details.globalPosition.dy,
           ),
           items: [
-            PopupMenuItem(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.block, size: 18, color: Colors.red[400]),
-                  const SizedBox(width: 8),
-                  Text("拉黑用户", style: TextStyle(color: Colors.red[400])),
-                ],
-              ),
-              onTap: () {
-                BlockedUsersService.instance.block(
-                  controller.site.id,
-                  message.userName,
-                  message.message,
-                  anchorName: controller.detail.value?.userName ?? '',
-                );
-                final overlay = Overlay.of(context, rootOverlay: true);
-                late OverlayEntry entry;
-                entry = OverlayEntry(
-                  builder: (_) => Positioned(
-                    top: 20,
-                    right: 20,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          "拉黑 ${message.userName} 成功",
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-                overlay.insert(entry);
-                Future.delayed(const Duration(seconds: 1), () {
-                  if (entry.mounted) entry.remove();
-                });
-              },
-            ),
+            buildBlockUserMenuItem(message.userName, () {
+              BlockedUsersService.instance.block(
+                controller.site.id,
+                message.userName,
+                message.message,
+                anchorName: controller.detail.value?.userName ?? '',
+              );
+              showBlockUserToast(context, message.userName);
+            }),
           ],
         );
       },
