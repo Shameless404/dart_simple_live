@@ -282,15 +282,17 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           wakelock: false,
         ),
         Obx(
-          () => Visibility(
-            visible: !controller.liveStatus.value,
-            child: const Center(
-              child: Text(
-                "未开播",
-                style: TextStyle(fontSize: 16, color: Colors.white),
-              ),
-            ),
-          ),
+          () {
+            if (!controller.liveStatus.value) {
+              return const Center(
+                child: Text(
+                  "未开播",
+                  style: TextStyle(fontSize: 16, color: Colors.white),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          },
         ),
       ],
     );
@@ -835,9 +837,8 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 controller.saveScreenshot();
               },
             ),
-            Visibility(
-              visible: Platform.isAndroid,
-              child: ListTile(
+            if (Platform.isAndroid)
+              ListTile(
                 leading: const Icon(Icons.picture_in_picture),
                 title: const Text("小窗播放"),
                 trailing: const Icon(Icons.chevron_right),
@@ -846,7 +847,6 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                   controller.enablePIP();
                 },
               ),
-            ),
             ListTile(
               leading: const Icon(Icons.timer_outlined),
               title: const Text("定时关闭"),

@@ -9,6 +9,8 @@ import 'package:canvas_danmaku/canvas_danmaku.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:url_launcher/url_launcher_string.dart';
+
 
 class MiniPlayerArguments {
   final String siteId;
@@ -166,7 +168,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   bool _danmakuUserEnabled = false;
   bool _showControls = false;
   bool _isMaximized = false;
+  bool _isFullscreen = false;
   late double _danmuSize;
+  late double _danmuSpeed;
   double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
   double _lastVolume = 0.5;  // 静音前音量，用于恢复
   Timer? _cleanupTimer;
@@ -177,6 +181,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   void initState() {
     super.initState();
     _danmuSize = widget.args.danmuSize;
+    _danmuSpeed = widget.args.danmuSpeed;
     BlockedUsersService.instance.init();
     player = Player(
       configuration: const PlayerConfiguration(
@@ -287,6 +292,50 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     await windowManager.setSize(Size(targetWidth, targetHeight));
   }
 
+  Future<void> _toggleFullscreen() async {
+    final isFullscreen = await windowManager.isFullScreen();
+    await windowManager.setFullScreen(!isFullscreen);
+    _isFullscreen = !isFullscreen;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _exitFullscreen() async {
+    if (await windowManager.isFullScreen()) {
+      await windowManager.setFullScreen(false);
+      _isFullscreen = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _openInBrowser() async {
+    final url = _getWebUrl();
+    if (url.isNotEmpty) {
+      await launchUrlString(url, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  String _getWebUrl() {
+    switch (widget.args.siteId) {
+      case 'bilibili':
+        return 'https://live.bilibili.com/${widget.args.roomId}';
+      case 'douyin':
+        try {
+          final data = jsonDecode(widget.args.danmakuJson);
+          final webRid = data['webRid'] as String?;
+          if (webRid != null && webRid.isNotEmpty) {
+            return 'https://live.douyin.com/$webRid';
+          }
+        } catch (_) {}
+        return 'https://live.douyin.com/${widget.args.roomId}';
+      case 'huya':
+        return 'https://www.huya.com/${widget.args.roomId}';
+      case 'douyu':
+        return 'https://www.douyu.com/${widget.args.roomId}';
+      default:
+        return '';
+    }
+  }
+
   Future<void> _connectDanmaku() async {
     if (widget.args.danmakuJson.isEmpty) return;
     try {
@@ -369,6 +418,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           Positioned.fill(
             child: GestureDetector(
               onTap: () {
+                danmakuController?.resume();
                 menuEntry.remove();
                 _isOverlayActive = false;
               },
@@ -395,6 +445,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                       anchorName: widget.args.userName,
                     );
                     showBlockUserToast(context, item.userName!);
+                    danmakuController?.resume();
                     menuEntry.remove();
                     _isOverlayActive = false;
                   },
@@ -427,30 +478,51 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     setState(() {});
   }
 
+  void _changeDanmuSize(double delta) {
+    _danmuSize = (_danmuSize + delta).clamp(8.0, 50.0);
+    danmakuController?.updateOption(DanmakuOption(
+      fontSize: _danmuSize,
+      duration: _danmuSpeed.toInt(),
+      area: widget.args.danmuArea,
+      opacity: widget.args.danmuOpacity,
+      fontWeight: widget.args.danmuFontWeight,
+      showStroke: widget.args.danmuStrokeWidth > 0,
+    ));
+    setState(() {});
+  }
+
+  void _changeDanmuSpeed(double delta) {
+    _danmuSpeed = (_danmuSpeed + delta).clamp(4.0, 20.0);
+    danmakuController?.updateOption(DanmakuOption(
+      fontSize: _danmuSize,
+      duration: _danmuSpeed.toInt(),
+      area: widget.args.danmuArea,
+      opacity: widget.args.danmuOpacity,
+      fontWeight: widget.args.danmuFontWeight,
+      showStroke: widget.args.danmuStrokeWidth > 0,
+    ));
+    setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: MouseRegion(
-        onEnter: (_) {
-          _cleanupTimer?.cancel();
-          danmakuController?.pause();
-          _showControls = true;
-          if (mounted) setState(() {});
-        },
-        onExit: (_) {
-          if (!_isOverlayActive) {
-            danmakuController?.resume();
-          }
-          _cleanupTimer?.cancel();
-          _cleanupTimer = Timer(const Duration(seconds: 3), () {
-            if (!_isOverlayActive) {
-              _showControls = false;
-            }
+          onEnter: (_) {
+            _cleanupTimer?.cancel();
+            _showControls = true;
             if (mounted) setState(() {});
-          });
-        },
+          },
+          onExit: (_) {
+            _cleanupTimer?.cancel();
+            _cleanupTimer = Timer(const Duration(seconds: 3), () {
+              if (!_isOverlayActive) {
+                _showControls = false;
+              }
+              if (mounted) setState(() {});
+            });
+          },
           child: Stack(
             children: [
               // Video player — no native controls overlay (CPU optimization)
@@ -463,7 +535,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                   wakelock: false,
                 ),
               ),
-              // Custom title bar (visible on hover) — replaces OS title bar
+              // Custom title bar — replaces OS title bar
               if (_showControls)
                 Positioned(
                   key: const ValueKey('title_bar'),
@@ -489,7 +561,12 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                         left: 0,
                         right: 200,
                         bottom: 0,
-                        child: DragToMoveArea(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onPanStart: (details) {
+                            windowManager.startDragging();
+                          },
+                          onDoubleTap: _toggleFullscreen,
                           child: SizedBox.expand(
                             child: Align(
                               alignment: Alignment.centerLeft,
@@ -513,8 +590,16 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            _TitleBarButton(Icons.fast_rewind, () => _changeDanmuSpeed(1)),
+
+                            _TitleBarButton(Icons.fast_forward, () => _changeDanmuSpeed(-1)),
+
+                            _TitleBarButton(Icons.remove, () => _changeDanmuSize(-1)),
+
+                            _TitleBarButton(Icons.add, () => _changeDanmuSize(1)),
                             _buildDanmakuToggle(),
                             const _PinToggleButton(),
+                            _TitleBarButton(Icons.open_in_browser, _openInBrowser),
                             _TitleBarButton(Icons.minimize, () => windowManager.minimize()),
                             _TitleBarButton(
                               _isMaximized ? Icons.filter_none : Icons.crop_square,
@@ -530,7 +615,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
               // Custom controls bar (null-form, only in tree on hover)
               if (_showControls)
                 _buildControlsBar(),
-              // Danmaku — always in tree when enabled, avoids title bar & controls bar on hover
+              // Danmaku — always in tree when enabled
               if (_danmakuUserEnabled)
                 Positioned(
                   key: const ValueKey('danmaku'),
@@ -542,7 +627,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                     createdController: (c) => danmakuController = c,
                     option: DanmakuOption(
                       fontSize: _danmuSize,
-                      duration: widget.args.danmuSpeed.toInt(),
+                      duration: _danmuSpeed.toInt(),
                       area: widget.args.danmuArea,
                       opacity: widget.args.danmuOpacity,
                       fontWeight: widget.args.danmuFontWeight,
@@ -553,7 +638,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                 ),
             ],
           ),
-      ),
+        ),
     );
   }
 
@@ -658,14 +743,14 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     );
   }
 
-  Widget _TitleBarButton(IconData icon, VoidCallback onTap) {
+  Widget _TitleBarButton(IconData icon, VoidCallback onTap, {Color color = Colors.white70}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         width: 36,
         height: 36,
         alignment: Alignment.center,
-        child: Icon(icon, color: Colors.white70, size: 16),
+        child: Icon(icon, color: color, size: 16),
       ),
     );
   }

@@ -54,16 +54,18 @@ Widget buildFullControls(
 
         // 左下角SC显示
         Obx(
-          () => Visibility(
-            visible: AppSettingsController.instance.playershowSuperChat.value &&
+          () {
+            if (AppSettingsController.instance.playershowSuperChat.value &&
                 ((!Platform.isAndroid && !Platform.isIOS) ||
-                    controller.fullScreenState.value),
-            child: Positioned(
-              left: 24,
-              bottom: 24,
-              child: PlayerSuperChatOverlay(controller: controller),
-            ),
-          ),
+                    controller.fullScreenState.value)) {
+              return Positioned(
+                left: 24,
+                bottom: 24,
+                child: PlayerSuperChatOverlay(controller: controller),
+              );
+            }
+            return const SizedBox.shrink();
+          },
         ),
 
         Center(
@@ -71,12 +73,14 @@ Widget buildFullControls(
               StreamBuilder(
             stream: videoState.widget.controller.player.stream.buffering,
             initialData: videoState.widget.controller.player.state.buffering,
-            builder: (_, s) => Visibility(
-              visible: s.data ?? false,
-              child: const Center(
-                child: CircularProgressIndicator(),
-              ),
-            ),
+            builder: (_, s) {
+              if (s.data == true) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+              return const SizedBox.shrink();
+            },
           ),
         ),
         Positioned.fill(
@@ -188,9 +192,8 @@ Widget buildFullControls(
                       size: 24,
                     ),
                   ),
-                  Visibility(
-                    visible: Platform.isAndroid,
-                    child: IconButton(
+                  if (Platform.isAndroid)
+                    IconButton(
                       onPressed: () {
                         controller.enablePIP();
                       },
@@ -200,7 +203,6 @@ Widget buildFullControls(
                         size: 24,
                       ),
                     ),
-                  ),
                   IconButton(
                     onPressed: () {
                       showPlayerSettings(controller);
@@ -253,9 +255,8 @@ Widget buildFullControls(
                       color: Colors.white,
                     ),
                   ),
-                  Offstage(
-                    offstage: controller.showDanmakuState.value,
-                    child: IconButton(
+                  if (!controller.showDanmakuState.value)
+                    IconButton(
                       onPressed: () => controller.showDanmakuState.value =
                           !controller.showDanmakuState.value,
                       icon: const ImageIcon(
@@ -264,10 +265,8 @@ Widget buildFullControls(
                         color: Colors.white,
                       ),
                     ),
-                  ),
-                  Offstage(
-                    offstage: !controller.showDanmakuState.value,
-                    child: IconButton(
+                  if (controller.showDanmakuState.value)
+                    IconButton(
                       onPressed: () => controller.showDanmakuState.value =
                           !controller.showDanmakuState.value,
                       icon: const ImageIcon(
@@ -276,7 +275,6 @@ Widget buildFullControls(
                         color: Colors.white,
                       ),
                     ),
-                  ),
                   IconButton(
                     onPressed: () {
                       showDanmakuSettings(controller);
@@ -298,9 +296,8 @@ Widget buildFullControls(
                     ),
                   ),
                   const Expanded(child: Center()),
-                  Visibility(
-                    visible: !Platform.isAndroid && !Platform.isIOS,
-                    child: IconButton(
+                  if (!Platform.isAndroid && !Platform.isIOS)
+                    IconButton(
                       key: volumeButtonkey,
                       onPressed: () {
                         controller
@@ -312,7 +309,6 @@ Widget buildFullControls(
                         color: Colors.white,
                       ),
                     ),
-                  ),
                   TextButton(
                     onPressed: () {
                       showQualitesInfo(controller);
@@ -378,22 +374,24 @@ Widget buildFullControls(
           ),
         ),
         Obx(
-          () => Offstage(
-            offstage: !controller.showGestureTip.value,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade900,
-                  borderRadius: BorderRadius.circular(12),
+          () {
+            if (controller.showGestureTip.value) {
+              return Center(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade900,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    controller.gestureTipText.value,
+                    style: const TextStyle(fontSize: 18, color: Colors.white),
+                  ),
                 ),
-                child: Text(
-                  controller.gestureTipText.value,
-                  style: const TextStyle(fontSize: 18, color: Colors.white),
-                ),
-              ),
-            ),
-          ),
+              );
+            }
+            return const SizedBox.shrink();
+          },
         ),
       ],
     ),
@@ -440,16 +438,18 @@ Widget buildControls(
 
       // 左下角SC显示
       Obx(
-        () => Visibility(
-          visible: AppSettingsController.instance.playershowSuperChat.value &&
+        () {
+          if (AppSettingsController.instance.playershowSuperChat.value &&
               ((!Platform.isAndroid && !Platform.isIOS) ||
-                  controller.fullScreenState.value),
-          child: Positioned(
-            left: 24,
-            bottom: 24,
-            child: PlayerSuperChatOverlay(controller: controller),
-          ),
-        ),
+                  controller.fullScreenState.value)) {
+            return Positioned(
+              left: 24,
+              bottom: 24,
+              child: PlayerSuperChatOverlay(controller: controller),
+            );
+          }
+          return const SizedBox.shrink();
+        },
       ),
 
       // 中间
@@ -457,12 +457,14 @@ Widget buildControls(
         child: StreamBuilder(
           stream: videoState.widget.controller.player.stream.buffering,
           initialData: videoState.widget.controller.player.state.buffering,
-          builder: (_, s) => Visibility(
-            visible: s.data ?? false,
-            child: const Center(
-              child: CircularProgressIndicator(),
-            ),
-          ),
+          builder: (_, s) {
+            if (s.data == true) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+            return const SizedBox.shrink();
+          },
         ),
       ),
       Positioned.fill(
@@ -511,9 +513,8 @@ Widget buildControls(
                     color: Colors.white,
                   ),
                 ),
-                Offstage(
-                  offstage: controller.showDanmakuState.value,
-                  child: IconButton(
+                if (!controller.showDanmakuState.value)
+                  IconButton(
                     onPressed: () => controller.showDanmakuState.value =
                         !controller.showDanmakuState.value,
                     icon: const ImageIcon(
@@ -522,10 +523,8 @@ Widget buildControls(
                       color: Colors.white,
                     ),
                   ),
-                ),
-                Offstage(
-                  offstage: !controller.showDanmakuState.value,
-                  child: IconButton(
+                if (controller.showDanmakuState.value)
+                  IconButton(
                     onPressed: () => controller.showDanmakuState.value =
                         !controller.showDanmakuState.value,
                     icon: const ImageIcon(
@@ -534,7 +533,6 @@ Widget buildControls(
                       color: Colors.white,
                     ),
                   ),
-                ),
                 IconButton(
                   onPressed: () {
                     controller.showDanmuSettingsSheet();
@@ -555,9 +553,8 @@ Widget buildControls(
                   ),
                 ),
                 const Expanded(child: Center()),
-                Visibility(
-                  visible: !Platform.isAndroid && !Platform.isIOS,
-                  child: IconButton(
+                if (!Platform.isAndroid && !Platform.isIOS)
+                  IconButton(
                     key: volumeButtonkey,
                     onPressed: () {
                       controller.showVolumeSlider(
@@ -570,10 +567,8 @@ Widget buildControls(
                       color: Colors.white,
                     ),
                   ),
-                ),
-                Offstage(
-                  offstage: isPortrait,
-                  child: TextButton(
+                if (!isPortrait)
+                  TextButton(
                     onPressed: () {
                       controller.showQualitySheet();
                     },
@@ -585,10 +580,8 @@ Widget buildControls(
                       ),
                     ),
                   ),
-                ),
-                Offstage(
-                  offstage: isPortrait,
-                  child: TextButton(
+                if (!isPortrait)
+                  TextButton(
                     onPressed: () {
                       controller.showPlayUrlsSheet();
                     },
@@ -597,10 +590,8 @@ Widget buildControls(
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                     ),
                   ),
-                ),
-                Visibility(
-                  visible: !Platform.isAndroid && !Platform.isIOS,
-                  child: IconButton(
+                if (!Platform.isAndroid && !Platform.isIOS)
+                  IconButton(
                     onPressed: () {
                       controller.enterSmallWindow();
                     },
@@ -610,7 +601,6 @@ Widget buildControls(
                       size: 24,
                     ),
                   ),
-                ),
                 IconButton(
                   onPressed: () {
                     controller.enterFullScreen();
@@ -626,22 +616,24 @@ Widget buildControls(
         ),
       ),
       Obx(
-        () => Offstage(
-          offstage: !controller.showGestureTip.value,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade900,
-                borderRadius: BorderRadius.circular(12),
+        () {
+          if (controller.showGestureTip.value) {
+            return Center(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade900,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  controller.gestureTipText.value,
+                  style: const TextStyle(fontSize: 18, color: Colors.white),
+                ),
               ),
-              child: Text(
-                controller.gestureTipText.value,
-                style: const TextStyle(fontSize: 18, color: Colors.white),
-              ),
-            ),
-          ),
-        ),
+            );
+          }
+          return const SizedBox.shrink();
+        },
       ),
     ],
   );
@@ -666,22 +658,20 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
     top: padding.top,
     bottom: padding.bottom,
     child: Obx(
-      () => Offstage(
-        offstage: !controller.showDanmakuState.value,
-        child: Padding(
-          padding: controller.fullScreenState.value
-              ? EdgeInsets.only(
-                  top: AppSettingsController.instance.danmuTopMargin.value,
-                  bottom: AppSettingsController.instance.danmuBottomMargin.value,
-                )
-              : EdgeInsets.zero,
-          child: MouseRegion(
-            onEnter: (_) => controller.danmakuController?.pause(),
-            onExit: (_) => controller.danmakuController?.resume(),
+      () {
+        if (controller.showDanmakuState.value) {
+          return Padding(
+            padding: controller.fullScreenState.value
+                ? EdgeInsets.only(
+                    top: AppSettingsController.instance.danmuTopMargin.value,
+                    bottom: AppSettingsController.instance.danmuBottomMargin.value,
+                  )
+                : EdgeInsets.zero,
             child: controller.danmakuView!,
-          ),
-        ),
-      ),
+          );
+        }
+        return const SizedBox.shrink();
+      },
     ),
   );
 }

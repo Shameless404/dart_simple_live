@@ -271,17 +271,24 @@ var setCookieHeaders = result.headers["set-cookie"];
   - **加上 `SetWindowPos(SWP_FRAMECHANGED)`** 重算 NC 区消掉 31px 空位。此时 swap chain 未创建，不白屏
 - `mini_player_window.dart` **没有**移除逻辑（不再需要 `_removeOsTitleBar`）
 - ⚠️ **removeMask 必须是 `0x00CB0000` 不是 `0x00CF0000`**：`0x00CF0000` 多包含 `WS_SIZEBOX(0x040000)`，会删除可调边框导致无法拖拽大小
-- 自定义标题栏 36px 高，黑渐变背景，`_showControls` 控制显示/隐藏（3秒延迟）
-- 布局：`Stack(渐变 + DragToMoveArea(左半文字) + Positioned(右半按钮))`
-- **`DragToMoveArea` 只包裹文字区域（left:0, right:200），按钮用单独 `Positioned(right:0)` 显示，物理上不在 DragToMoveArea 内**
-- **禁止用 DragToMoveArea 包裹按钮** —— DragToMoveArea 的 startDragging 会拦截 GestureDetector
+- 自定义标题栏 36px 高，黑渐变背景，`_showControls` 控制显示/隐藏（3 秒无鼠标动作后隐藏）
+- 布局：`Stack(渐变 + GestureDetector(左半文字: 拖拽+双击全屏) + Positioned(右半按钮))`
+- **文字区用自定义 `GestureDetector` 替代 `DragToMoveArea`**（`behavior: HitTestBehavior.translucent`）：
+  - `onPanStart` → `windowManager.startDragging()`（拖拽移动）
+  - `onDoubleTap` → `_toggleFullscreen()`（双击全屏，非最大化）
+- **禁止用文字区 GestureDetector 包裹按钮** —— 按钮在独立 `Positioned(right:0)` 中，物理上不重叠
 - 标题文字用 `widget.args.userName`（主播名），不是 `title`
-- 按钮从右到左：关闭（`Icons.close`）→ 最大化/还原（`Icons.crop_square`）→ 最小化（`Icons.minimize`）→ 置顶（`_PinToggleButton`）→ 弹幕开关（`_buildDanmakuToggle()`）
+- 按钮从右到左：关闭 → 最大化/还原 → 最小化 → **浏览器打开** → 置顶 → 弹幕开关 → 字号 +/- → 速度 << >>
+- 浏览器按钮（`Icons.open_in_browser`）→ `_openInBrowser()`，按平台构建 web URL（抖音取 `webRid`）
 - 关闭按钮点击：`globalMiniPlayer.dispose()` + `windowManager.setPreventClose(false)` + `windowManager.destroy()`
+- 全屏：`windowManager.isFullScreen()` + `setFullScreen()`（注意 API 是 camelCase FullScreen 不是 Fullscreen）
+- 控件显示策略：`onEnter` 显示 → `onExit` 3 秒后 null-form 移除。不用 `onHover`（MouseRegion onHover 即使只做字段检查也会触发 Flutter 每帧命中测试，多窗口时 CPU 明显升高）
+- **ESC 退出全屏已删除：** `Focus(autofocus: true)` 在多子窗口下可能引起 focus scope 抖动导致 CPU 上涨。等找到零 CPU 方案再加回来。
+- `_cleanupTimer` 回调中注意 `_isOverlayActive` 为 true 时也应跳过 `setState`（当前写的是 `if (!_isOverlayActive) _showControls = false;` 但 `setState` 仍在外面统一调用）
 
 ### 子窗口自定义控件栏 — 轻量级覆盖 + CPU 回归修复（2026-06-02）
 - **🔥 CPU 回归根因：`MaterialDesktopVideoControlsTheme` 包裹 `Video` + `controls: MaterialDesktopVideoControls`** 导致每个子窗口 ~11 个 stream subscriptions + `AnimatedOpacity` + 复杂子树，10 个子窗口仅能开 5 个
-- **修复方案：** 永久 `controls: null`，完全移除 `MaterialDesktopVideoControlsTheme`
+- **修复方案：** 永久 `controls: null`，完全移除 `MaterialDesktopVideoControlsTheme`。`MaterialDesktopVideoControls` 内部订阅 `playlist` + `buffering` 两个流，无用户交互也会持续触发 `setState`。加上 5 个子控件的额外流订阅，总共 11 个。删除后恢复 10 窗口容量
 - **自定义控件栏**（`_buildControlsBar`）：底部 48px 渐变条，包含播放/暂停 + 音量图标 + 音量滑动条
   - 纯 null-form（`if (_showControls)`），hover 才挂载，离开 3 秒后销毁
 - **`_volume` 是滑块自身状态（不是 player.state.volume 的副本）：**
@@ -290,8 +297,10 @@ var setCookieHeaders = result.headers["set-cookie"];
   - `_volumeSub` 在 volume 流变化时写入 `_volume = v` 双向同步
   - 播放/暂停 icon 用 `player.state.playing` 直读（足够快）
 - `_showControls` 同时控制**自定义标题栏** + **控件栏**的挂载/销毁
+- 显示策略：`onEnter` 显示 → `onHover` 重置 3 秒倒计时（鼠标每动一下延后）→ `onExit` 起 3 秒倒计时 → 倒计时到设 `_showControls=false`（null-form 真移除）
 - **DanmakuScreen** 定位 `top: _showControls ? 36 : 0`（避开标题栏），`bottom: _showControls ? 48 : 0`（避开控件栏）
-- 鼠标进入时 `danmakuController?.pause()`（让用户看清视频），离开时 `resume()`
+- 鼠标进入时不暂停弹幕（`onEnter` 移除 `pause()`），离开时不恢复（`onExit` 移除 `resume()`）
+- 右击弹幕弹出拉黑菜单时 `pause()`，关闭后 `clear() + resume()` 清旧弹幕接实时
 
 ## 抖音子窗口修复思路
 
@@ -498,11 +507,20 @@ class _MiniWindowCloseHandler extends WindowListener {
 - 调用方：`live_room_page.dart:563` 传 `controller.detail.value?.userName`，`mini_player_window.dart:374` 传 `widget.args.userName`
 - `blocked_users_page.dart` 展示格式为两行：`用户名 [平台] 主播名`（同级别）+ 灰色缩进第二行弹幕内容（平铺 Column，不用 ListTile title/subtitle）
 
-### 14. Toast 统一（2026-05-31）
+### 14. 子窗口弹幕鼠标交互修复（2026-06-03）
+- **问题：** 全屏/大窗口时鼠标进出触发 `danmakuController?.pause/resume`，弹幕永久卡死
+- **onEnter：** 移除 `danmakuController?.pause()` — 进入窗口不暂停弹幕
+- **onExit：** 移除 `danmakuController?.resume()` — 离开窗口不恢复弹幕（弹幕自然滚动）
+- **右击拉黑关闭后：** 两条关闭路径只调 `resume()`，不 `clear()` — 弹幕继续自然滚动，支持连续拉黑多人
+- **标题栏弹幕开关：** 已经是纯 null-form 真关闭（`liveDanmaku.stop()` + widget 移出树），开时重新 `_connectDanmaku()`，天然清空重来
+- **右击弹出时：** 仍保留 `danmakuController?.pause()` 让用户看清弹幕
+- **CPU 影响：** 零增加（net 减少，去掉了 on-hover 的 API 调用）
+
+### 15. Toast 统一（2026-05-31）
 - 主窗口聊天右击拉黑提示：从 `Get.snackbar` 改为 `OverlayEntry` 黑底白字圆角卡片，1 秒后自动移除
 - 和子窗口 `_showToast()` 风格一致（子窗口原本就是 OverlayEntry，未改）
 
-### 15. 关注列表搜索功能（2026-05-31）
+### 16. 关注列表搜索功能（2026-05-31）
 
 **两个入口：**
 
