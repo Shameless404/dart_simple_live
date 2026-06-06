@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -173,6 +174,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   late double _danmuSpeed;
   double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
   double _lastVolume = 0.5;  // 静音前音量，用于恢复
+  bool _hwdec = true;
   Timer? _cleanupTimer;
   StreamSubscription? _playingSub;
   StreamSubscription? _volumeSub;
@@ -182,6 +184,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     super.initState();
     _danmuSize = widget.args.danmuSize;
     _danmuSpeed = widget.args.danmuSpeed;
+    _logVf('init: site=${widget.args.siteId} room=${widget.args.roomId} urlLen=${widget.args.streamUrl.length} userName=${widget.args.userName} cascade=${widget.args.cascadeIndex}');
     BlockedUsersService.instance.init();
     player = Player(
       configuration: const PlayerConfiguration(
@@ -189,15 +192,17 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         logLevel: MPVLogLevel.error,
       ),
     );
-    player.setVolume(0.0);  // 默认静音（media_kit范围：0.0-100.0）
+    (player.platform as dynamic).setProperty('hwdec', 'auto');
+    player.setVolume(0.0);
     _volume = 0.0;
+    _logVf('init: player created, hwdec=auto volume=0.0');
     globalMiniPlayer = player;
     videoController = VideoController(player);
     _playingSub = player.stream.playing.listen((_) {
       if (mounted) setState(() {});
     });
     _volumeSub = player.stream.volume.listen((v) {
-      _volume = v / 100.0;  // media_kit 发 0.0-100.0，_volume 用 0.0-1.0
+      _volume = v / 100.0;
       if (mounted) setState(() {});
     });
     windowManager.setTitle("${widget.args.userName} - ${widget.args.title}");
@@ -208,43 +213,54 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   @override
   void dispose() {
+    _logVf('dispose: cleaning up');
     globalMiniPlayer = null;
     _cleanupTimer?.cancel();
     _playingSub?.cancel();
     _volumeSub?.cancel();
     liveDanmaku?.stop();
     player.dispose();
+    _logVf('dispose: done');
     super.dispose();
   }
 
   Future<void> _play() async {
+    _logVf('_play: start, streamUrl.isEmpty=${widget.args.streamUrl.isEmpty}');
     await windowManager.setAlwaysOnTop(true);
     if (widget.args.streamUrl.isNotEmpty) {
       await Future.delayed(const Duration(milliseconds: 100));
       final sizeFuture = _waitForVideoSize();
+      _logVf('_play: opening stream URL');
       await player.open(Media(
         widget.args.streamUrl,
         httpHeaders: widget.args.streamHeaders,
       ));
       await player.play();
+      _logVf('_play: opened+played');
       if (mounted) setState(() {});
       final size = await sizeFuture;
       if (size != null) _resizeWindow(size.$1, size.$2);
+      _logVf('_play: done, size=$size');
       return;
     }
     if (widget.args.siteId == 'douyin') {
       await _resolveDouyinAndPlay();
     }
+    _logVf('_play: end (no streamUrl, not douyin)');
   }
 
   Future<void> _resolveDouyinAndPlay() async {
+    _logVf('_resolveDouyinAndPlay: start');
     try {
       final site = DouyinSite();
       final detail = await site.getRoomDetail(roomId: widget.args.roomId);
+      _logVf('_resolveDouyinAndPlay: detail userName=${detail.userName}');
       final qualities = await site.getPlayQualites(detail: detail);
-      if (qualities.isEmpty) return;
+      if (qualities.isEmpty) { _logVf('ABORT: no douyin qualities'); return; }
+      _logVf('_resolveDouyinAndPlay: quality count=${qualities.length} first=${qualities[0]}');
       final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[0]);
-      if (playUrl.urls.isEmpty) return;
+      if (playUrl.urls.isEmpty) { _logVf('ABORT: no douyin urls'); return; }
+      _logVf('_resolveDouyinAndPlay: urls=${playUrl.urls.length} first=${playUrl.urls[0]}');
       await Future.delayed(const Duration(milliseconds: 100));
       final sizeFuture = _waitForVideoSize();
       await player.open(Media(
@@ -252,10 +268,29 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         httpHeaders: playUrl.headers,
       ));
       await player.play();
+      _logVf('_resolveDouyinAndPlay: opened+played');
       if (mounted) setState(() {});
       final size = await sizeFuture;
       if (size != null) _resizeWindow(size.$1, size.$2);
-    } catch (e) { debugPrint('MiniPlayer: _resolveDouyinAndPlay error: $e'); }
+    } catch (e) { _logVf('_resolveDouyinAndPlay ERROR: $e'); }
+      _logVf('_resolveDouyinAndPlay: end');
+  }
+
+  LiveSite _createSite(String siteId) {
+    switch (siteId) {
+      case 'bilibili':
+        final site = BiliBiliSite();
+        if (widget.args.bilibiliCookie.isNotEmpty) {
+          site.cookie = widget.args.bilibiliCookie;
+        }
+        return site;
+      case 'douyu':
+        return DouyuSite();
+      case 'huya':
+        return HuyaSite();
+      default:
+        return DouyinSite();
+    }
   }
 
   Future<(int, int)?> _waitForVideoSize() async {
@@ -270,14 +305,16 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         w = h;
         h = tmp;
       }
+      _logVf('videoSize: dw=$w dh=$h rotate=${params.rotate}');
       return (w, h);
     } catch (_) {
+      _logVf('videoSize: timeout (5s, no valid size)');
       return null;
     }
   }
 
   Future<void> _resizeWindow(int w, int h) async {
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0 || h <= 0) { _logVf('resize: skip w=$w h=$h'); return; }
     final aspectRatio = w / h;
     double targetWidth, targetHeight;
     if (aspectRatio >= 1) {
@@ -289,11 +326,65 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     }
     targetWidth = targetWidth.clamp(280, 900);
     targetHeight = targetHeight.clamp(200, 700);
+    _logVf('resize: src=${w}x$h ratio=$aspectRatio target=${targetWidth}x$targetHeight');
     await windowManager.setSize(Size(targetWidth, targetHeight));
+  }
+
+  Future<void> _reloadStream() async {
+    _logVf('=== reloadStream start ===');
+    try {
+      final site = _createSite(widget.args.siteId);
+      _logVf('site: ${widget.args.siteId}');
+      final detail = await site.getRoomDetail(roomId: widget.args.roomId);
+      final qualities = await site.getPlayQualites(detail: detail);
+      if (qualities.isEmpty) { _logVf('ABORT: no qualities'); return; }
+      final qualityIdx = _hwdec ? 0 : (qualities.length - 1);
+      final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[qualityIdx]);
+      _logVf('qualities: ${qualities.length}, picked idx=$qualityIdx ${_hwdec ? "best" : "worst"}');
+      if (playUrl.urls.isEmpty) { _logVf('ABORT: no urls'); return; }
+      await player.stop();
+      await Future.delayed(const Duration(milliseconds: 100));
+      await player.open(Media(
+        playUrl.urls[0],
+        httpHeaders: playUrl.headers,
+      ));
+      await player.play();
+      _logVf('reload done');
+    } catch (e) {
+      _logVf('RELOAD ERROR: $e');
+    }
+    _logVf('=== reloadStream end ===');
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleHwdecAndReload() async {
+    _hwdec = !_hwdec;
+    _logVf('toggle mode=${_hwdec ? "hard" : "soft"}');
+    if (_hwdec) {
+      await (player.platform as dynamic).setProperty('hwdec', 'auto');
+      await (player.platform as dynamic).setProperty('framedrop', 'no');
+    } else {
+      await (player.platform as dynamic).setProperty('hwdec', 'no');
+      await (player.platform as dynamic).setProperty('framedrop', 'vo');
+    }
+    _reloadStream();
+  }
+
+  void _logVf(String msg) {
+    try {
+      final f = File(r'D:\simple_live\minipayer_debug.log');
+      f.writeAsStringSync('${DateTime.now().toIso8601String()} $msg\n', mode: FileMode.append);
+    } catch (_) {}
+  }
+
+  void _refreshStream() {
+    _logVf('refreshStream');
+    _reloadStream();
   }
 
   Future<void> _toggleFullscreen() async {
     final isFullscreen = await windowManager.isFullScreen();
+    _logVf('toggleFullscreen: was=$isFullscreen going=${!isFullscreen}');
     await windowManager.setFullScreen(!isFullscreen);
     _isFullscreen = !isFullscreen;
     if (mounted) setState(() {});
@@ -301,6 +392,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   Future<void> _exitFullscreen() async {
     if (await windowManager.isFullScreen()) {
+      _logVf('exitFullscreen');
       await windowManager.setFullScreen(false);
       _isFullscreen = false;
       if (mounted) setState(() {});
@@ -309,6 +401,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   Future<void> _openInBrowser() async {
     final url = _getWebUrl();
+    _logVf('openInBrowser: $url');
     if (url.isNotEmpty) {
       await launchUrlString(url, mode: LaunchMode.externalApplication);
     }
@@ -337,7 +430,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   }
 
   Future<void> _connectDanmaku() async {
-    if (widget.args.danmakuJson.isEmpty) return;
+    if (widget.args.danmakuJson.isEmpty) { _logVf('danmaku: skip (empty json)'); return; }
+    _logVf('danmaku: connecting, site=${widget.args.danmakuSite}');
     try {
       switch (widget.args.danmakuSite) {
         case 'bilibili': {
@@ -387,7 +481,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           break;
         }
       }
-    } catch (e) { debugPrint('MiniPlayer: _connectDanmaku error: $e'); }
+      _logVf('danmaku: connected');
+    } catch (e) { _logVf('danmaku ERROR: $e'); }
   }
 
   void _setupDanmakuHandlers() {
@@ -468,6 +563,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   void _toggleDanmaku() {
     _danmakuUserEnabled = !_danmakuUserEnabled;
+    _logVf('danmakuToggle: ${_danmakuUserEnabled ? "ON" : "OFF"}');
     if (!_danmakuUserEnabled) {
       liveDanmaku?.stop();
       liveDanmaku = null;
@@ -480,6 +576,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   void _changeDanmuSize(double delta) {
     _danmuSize = (_danmuSize + delta).clamp(8.0, 50.0);
+    _logVf('danmuSize: delta=$delta value=$_danmuSize');
     danmakuController?.updateOption(DanmakuOption(
       fontSize: _danmuSize,
       duration: _danmuSpeed.toInt(),
@@ -493,6 +590,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
 
   void _changeDanmuSpeed(double delta) {
     _danmuSpeed = (_danmuSpeed + delta).clamp(4.0, 20.0);
+    _logVf('danmuSpeed: delta=$delta value=$_danmuSpeed');
     danmakuController?.updateOption(DanmakuOption(
       fontSize: _danmuSize,
       duration: _danmuSpeed.toInt(),
@@ -590,6 +688,12 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            _HwdecButton(
+                              isHardware: _hwdec,
+                              onTap: _toggleHwdecAndReload,
+                            ),
+                            // Reload stream button
+                            _TitleBarButton(Icons.refresh, _refreshStream),
                             _TitleBarButton(Icons.fast_rewind, () => _changeDanmuSpeed(1)),
 
                             _TitleBarButton(Icons.fast_forward, () => _changeDanmuSpeed(-1)),
@@ -772,7 +876,30 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     );
   }
 
+  Widget _HwdecButton({
+    required bool isHardware,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        child: Text(
+          isHardware ? '硬' : '软',
+          style: TextStyle(
+            color: isHardware ? Colors.white70 : Colors.amber,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _toggleMaximize() {
+    _logVf('toggleMaximize: was=${_isMaximized}');
     if (_isMaximized) {
       windowManager.unmaximize();
       _isMaximized = false;

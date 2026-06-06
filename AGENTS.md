@@ -38,6 +38,10 @@
 - 构建前设置 `$env:FLUTTER_VS_INSTALL_PATH` 和 `$env:FLUTTER_VS_MSVC_VERSION`
 - Flutter SDK patches 在 `D:\flutter`（`flutter upgrade` 会覆盖）
 
+### AI token 消耗
+- **每次 `flutter build` 输出 + 部署操作都进入对话上下文，消耗 token**
+- 构建/部署完成后应提醒 AI compress 掉这些原始输出（只留"构建成功/部署完毕"结论）
+
 ## Project Overview
 - 聚合直播平台 (Bilibili, 斗鱼, 虎牙, 抖音等) 的 Flutter 桌面端
 - 两个入口: `simple_live_app/` (Flutter GUI) + `simple_live_console/` (CLI)
@@ -382,7 +386,53 @@ var setCookieHeaders = result.headers["set-cookie"];
 ### Release 操作红牌
 - **绝不自行修改 Release 描述**（语言、格式、内容）→ 必须先问用户
 - **Release ZIP 文件名必须与 README 链接一致**：`simple_live_v<version>_windows-x64.zip`
+- **版本永远 v0.0.1**，不做版本递增
 - **创建 release 后检查**：`draft` 要发布、描述是否正确、ZIP 可下载
+
+### Release ZIP 创建
+```powershell
+# 从构建输出创建 ZIP（不部署到 D:\simple_live\）
+New-Item -ItemType Directory -Path "temp_zip" -Force | Out-Null
+Get-ChildItem "simple_live_app\build\windows\x64\runner\Release" | ForEach-Object {
+  if ($_.PSIsContainer) {
+    Copy-Item -Path $_.FullName -Destination "temp_zip\$($_.Name)" -Recurse -Force
+  } else {
+    Copy-Item -Path $_.FullName -Destination "temp_zip\" -Force
+  }
+}
+Compress-Archive -Path "temp_zip\*" -DestinationPath "simple_live_v0.0.1_windows-x64.zip" -Force
+Remove-Item -LiteralPath "temp_zip" -Recurse -Force
+```
+> **注意：** 系统没有安装 `zip` 命令，必须用 PowerShell 自带的 `Compress-Archive`。ZIP 在项目根目录创建，用完即删，不放入 `D:\simple_live\`。
+
+### Release Asset 替换（不删 release / tag）
+```powershell
+# 1. 获取 release ID
+$release = curl.exe -s -H "Authorization: token <TOKEN>" https://api.github.com/repos/Shameless404/dart_simple_live/releases/tags/v0.0.1
+# release_id = from json, asset_id = from json.assets[0].id
+
+# 2. 删旧 asset
+curl.exe -s -X DELETE -H "Authorization: token <TOKEN>" https://api.github.com/repos/Shameless404/dart_simple_live/releases/assets/<ASSET_ID>
+
+# 3. 上传新 asset
+curl.exe -s -X POST -H "Authorization: token <TOKEN>" -H "Content-Type: application/zip" --data-binary "@simple_live_v0.0.1_windows-x64.zip" "https://uploads.github.com/repos/Shameless404/dart_simple_live/releases/<RELEASE_ID>/assets?name=simple_live_v0.0.1_windows-x64.zip"
+
+# 4. 删本地 ZIP
+Remove-Item -LiteralPath "simple_live_v0.0.1_windows-x64.zip" -Force
+```
+> **注意：** Token 在 `git remote -v` 的 URL 中（`https://<TOKEN>@github.com/...`）。不删 release 和 tag，只替换 asset，下载链接不变。
+
+### 两种场景区分
+
+**场景 A — 本地测试（正常情况）：**
+- 构建后部署到 `D:\simple_live\`，覆盖旧版 exe + DLL
+- 用户双击运行测试
+
+**场景 B — 发布 Release（上传 GitHub）：**
+- 不动 `D:\simple_live\`（用户本地运行的版本不受影响）
+- 从 build 目录直接打包 ZIP，上传到 GitHub Release
+- ZIP 是中间产物，上传完成后从源码目录删除
+- 没有 gh CLI，用 `curl.exe` + GitHub REST API
 
 ### PowerShell 中文编码
 - `ConvertTo-Json` + `Invoke-RestMethod` 会导致中文乱码（PowerShell 5.1 限制）
@@ -618,3 +668,35 @@ player.setVolume(_volume * 100.0);  // 转换后传给 media_kit
 - 检查 Dialog 的 `ScrollController` 有没有 `addListener` 持续保存 offset
 - 检查 `initialScrollOffset` 有没有传对
 - 不要搞 `_ScrollRestore` / `jumpTo` 之类的方案
+
+**当用户说"release 版本更新"时：**
+- 构建 → `Compress-Archive` 创建 ZIP → `curl.exe -X DELETE` 删旧 asset → `curl.exe -X POST` 传新 asset
+- 不删 release / tag，不修改版本号，不动 `D:\simple_live\`
+- Token 从 `git remote -v` 的 URL 中提取
+
+## 子窗口 GPU 降载模式（2026-06 最终方案）
+
+### vf 属性不可写
+- `vf` 在 libmpv/media_kit 里不可写：`change-list`/`setProperty`/`command` 均返回空值
+- `getProperty` 只对字符串型属性有效（如 `hwdec`），`estimated-display-fps`/`drop-frame-count`/`display-fps` 等浮点/整型属性全部返回空
+- 结论：无法通过 vf 缩放分辨率来减少 GPU 负载
+
+### 最终方案：软解自动切最低画质
+**`_toggleHwdecAndReload()` 在 `mini_player_window.dart:360`：**
+- **硬解**（默认）：`hwdec=auto` + `framedrop=no` + 最高画质（`qualities[0]`）
+- **软解**（点软）：`hwdec=no` + `framedrop=vo` + 最低画质（`qualities.last`）
+
+**`_reloadStream()` 在 `mini_player_window.dart:333`：**
+- 根据 `_hwdec` 选画质：硬→`qualities[0]`，软→`qualities.last`
+- 所有平台（B站/斗鱼/虎牙/抖音）画质列表都是最高到最低排列
+
+**不用的方案（已证实无效/有害）：**
+- `cache=yes` + `cache-secs=N` → 卡+闪，已移除
+- `display-fps=24` → 导致画面变慢，已移除
+- `deband`/`scaling` 等画质开关 → 和闪屏无关，已移除
+
+### 使用方式
+- 默认硬解看直播（最高画质）
+- 打 CS→点软解，自动降最低画质+vo丢帧，不卡不闪
+- 打完 CS→点硬解，自动恢复最高画质
+- 切的时候短暂黑一下（`stop()+open()` 重新加载流），正常现象
