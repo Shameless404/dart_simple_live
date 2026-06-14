@@ -10,7 +10,7 @@
 
 ---
 
-[![Windows 下载](https://img.shields.io/github/v/release/Shameless404/dart_simple_live?label=Windows%20%E4%B8%8B%E8%BD%BD&color=green)](https://github.com/Shameless404/dart_simple_live/releases)
+[![Windows 下载](https://img.shields.io/github/v/release/Shameless404/dart_simple_live?label=Windows%20%E4%B8%8B%E8%BD%BD&color=green&cacheSeconds=0)](https://github.com/Shameless404/dart_simple_live/releases)
 
 📥 [下载 v0.0.1](https://github.com/Shameless404/dart_simple_live/releases/download/v0.0.1/simple_live_v0.0.1_windows-x64.zip)（解压即用，无需编译）
 
