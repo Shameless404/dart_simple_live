@@ -16,7 +16,7 @@ import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
 Future<void> openMiniWindow(FollowUser item,
-    {int cascadeIndex = 0, bool skipConfirm = false}) async {
+    {bool skipConfirm = false}) async {
   if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     return;
   }
@@ -106,6 +106,7 @@ Future<void> openMiniWindow(FollowUser item,
   } catch (e) {
     debugPrint('MiniPlayer: read cache failed: $e');
   }
+  final cascadeIndex = MiniPlayerManager.instance.nextIndex();
   var args = MiniPlayerArguments(
     roomId: item.roomId,
     siteId: item.siteId,
@@ -129,5 +130,5 @@ Future<void> openMiniWindow(FollowUser item,
   env['SIMPLE_LIVE_MINIPLAYER'] = jsonEncode(args.toJson());
   final proc = await Process.start(Platform.executable, [],
       environment: env, mode: ProcessStartMode.detached);
-  MiniPlayerManager.instance.register(proc);
+  MiniPlayerManager.instance.register(proc, cascadeIndex);
 }

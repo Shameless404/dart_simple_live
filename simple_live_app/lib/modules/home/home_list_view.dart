@@ -40,7 +40,6 @@ class HomeListView extends StatelessWidget {
                 face: item.cover,
                 addTime: DateTime.now(),
               ),
-              cascadeIndex: MiniPlayerManager.instance.nextIndex(),
               skipConfirm: true,
             ),
             child: LiveRoomCard(controller.site, item),

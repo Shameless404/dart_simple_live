@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:canvas_danmaku/canvas_danmaku.dart';
@@ -167,14 +168,14 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   LiveDanmaku? liveDanmaku;
   bool _isOverlayActive = false;
   bool _danmakuUserEnabled = false;
-  bool _showControls = false;
+  bool? _showControls = false;
   bool _isMaximized = false;
   bool _isFullscreen = false;
   late double _danmuSize;
   late double _danmuSpeed;
   double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
   double _lastVolume = 0.5;  // 静音前音量，用于恢复
-  bool _hwdec = true;
+  bool _hwdec = false;
   Timer? _cleanupTimer;
   StreamSubscription? _playingSub;
   StreamSubscription? _volumeSub;
@@ -192,10 +193,11 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         logLevel: MPVLogLevel.error,
       ),
     );
-    (player.platform as dynamic).setProperty('hwdec', 'auto');
+    (player.platform as dynamic).setProperty('hwdec', 'no');
+    (player.platform as dynamic).setProperty('framedrop', 'vo');
     player.setVolume(0.0);
     _volume = 0.0;
-    _logVf('init: player created, hwdec=auto volume=0.0');
+    _logVf('init: player created, hwdec=no framedrop=vo volume=0.0');
     globalMiniPlayer = player;
     videoController = VideoController(player);
     _playingSub = player.stream.playing.listen((_) {
@@ -225,55 +227,14 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   }
 
   Future<void> _play() async {
-    _logVf('_play: start, streamUrl.isEmpty=${widget.args.streamUrl.isEmpty}');
+    _logVf('_play: start');
     await windowManager.setAlwaysOnTop(true);
-    if (widget.args.streamUrl.isNotEmpty) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      final sizeFuture = _waitForVideoSize();
-      _logVf('_play: opening stream URL');
-      await player.open(Media(
-        widget.args.streamUrl,
-        httpHeaders: widget.args.streamHeaders,
-      ));
-      await player.play();
-      _logVf('_play: opened+played');
-      if (mounted) setState(() {});
-      final size = await sizeFuture;
-      if (size != null) _resizeWindow(size.$1, size.$2);
-      _logVf('_play: done, size=$size');
-      return;
-    }
-    if (widget.args.siteId == 'douyin') {
-      await _resolveDouyinAndPlay();
-    }
-    _logVf('_play: end (no streamUrl, not douyin)');
-  }
-
-  Future<void> _resolveDouyinAndPlay() async {
-    _logVf('_resolveDouyinAndPlay: start');
-    try {
-      final site = DouyinSite();
-      final detail = await site.getRoomDetail(roomId: widget.args.roomId);
-      _logVf('_resolveDouyinAndPlay: detail userName=${detail.userName}');
-      final qualities = await site.getPlayQualites(detail: detail);
-      if (qualities.isEmpty) { _logVf('ABORT: no douyin qualities'); return; }
-      _logVf('_resolveDouyinAndPlay: quality count=${qualities.length} first=${qualities[0]}');
-      final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[0]);
-      if (playUrl.urls.isEmpty) { _logVf('ABORT: no douyin urls'); return; }
-      _logVf('_resolveDouyinAndPlay: urls=${playUrl.urls.length} first=${playUrl.urls[0]}');
-      await Future.delayed(const Duration(milliseconds: 100));
-      final sizeFuture = _waitForVideoSize();
-      await player.open(Media(
-        playUrl.urls[0],
-        httpHeaders: playUrl.headers,
-      ));
-      await player.play();
-      _logVf('_resolveDouyinAndPlay: opened+played');
-      if (mounted) setState(() {});
-      final size = await sizeFuture;
-      if (size != null) _resizeWindow(size.$1, size.$2);
-    } catch (e) { _logVf('_resolveDouyinAndPlay ERROR: $e'); }
-      _logVf('_resolveDouyinAndPlay: end');
+    final sizeFuture = _waitForVideoSize();
+    await _reloadStream();
+    _logVf('_play: reloadStream done, waiting for video size');
+    final size = await sizeFuture;
+    if (size != null) _resizeWindow(size.$1, size.$2);
+    _logVf('_play: done, size=$size');
   }
 
   LiveSite _createSite(String siteId) {
@@ -387,6 +348,12 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     _logVf('toggleFullscreen: was=$isFullscreen going=${!isFullscreen}');
     await windowManager.setFullScreen(!isFullscreen);
     _isFullscreen = !isFullscreen;
+    if (_isFullscreen) {
+      _showControls = null;
+      _cleanupTimer?.cancel();
+    } else {
+      _showControls = false;
+    }
     if (mounted) setState(() {});
   }
 
@@ -395,6 +362,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       _logVf('exitFullscreen');
       await windowManager.setFullScreen(false);
       _isFullscreen = false;
+      _showControls = false;
       if (mounted) setState(() {});
     }
   }
@@ -607,19 +575,36 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: MouseRegion(
-          onEnter: (_) {
-            _cleanupTimer?.cancel();
-            _showControls = true;
+        onEnter: (_) {
+          if (_showControls == null) return;
+          _cleanupTimer?.cancel();
+          _showControls = true;
+          if (mounted) setState(() {});
+        },
+        onExit: (_) {
+          if (_showControls == null) return;
+          _cleanupTimer?.cancel();
+          _cleanupTimer = Timer(const Duration(seconds: 3), () {
+            if (_showControls == null) return;
+            if (!_isOverlayActive) {
+              _showControls = false;
+            }
             if (mounted) setState(() {});
-          },
-          onExit: (_) {
-            _cleanupTimer?.cancel();
-            _cleanupTimer = Timer(const Duration(seconds: 3), () {
-              if (!_isOverlayActive) {
-                _showControls = false;
+          });
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onDoubleTap: _toggleFullscreen,
+          child: Focus(
+          autofocus: true,
+          onKeyEvent: (node, event) {
+            if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+              if (_isFullscreen) {
+                _exitFullscreen();
+                return KeyEventResult.handled;
               }
-              if (mounted) setState(() {});
-            });
+            }
+            return KeyEventResult.ignored;
           },
           child: Stack(
             children: [
@@ -627,16 +612,15 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
               Positioned.fill(
                 key: const ValueKey('video'),
                 child: Video(
-                  controller: videoController,
-                  fill: Colors.black,
-                  controls: null,
-                  wakelock: false,
+                    controller: videoController,
+                    fill: Colors.black,
+                    controls: null,
+                    wakelock: false,
+                  ),
                 ),
-              ),
               // Custom title bar — replaces OS title bar
-              if (_showControls)
+              if (_showControls == true)
                 Positioned(
-                  key: const ValueKey('title_bar'),
                   top: 0,
                   left: 0,
                   right: 0,
@@ -664,7 +648,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                           onPanStart: (details) {
                             windowManager.startDragging();
                           },
-                          onDoubleTap: _toggleFullscreen,
                           child: SizedBox.expand(
                             child: Align(
                               alignment: Alignment.centerLeft,
@@ -706,8 +689,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                             _TitleBarButton(Icons.open_in_browser, _openInBrowser),
                             _TitleBarButton(Icons.minimize, () => windowManager.minimize()),
                             _TitleBarButton(
-                              _isMaximized ? Icons.filter_none : Icons.crop_square,
-                              _toggleMaximize,
+                              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                              _toggleFullscreen,
                             ),
                             _TitleBarCloseButton(),
                           ],
@@ -717,16 +700,16 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                   ),
                 ),
               // Custom controls bar (null-form, only in tree on hover)
-              if (_showControls)
+              if (_showControls == true)
                 _buildControlsBar(),
               // Danmaku — always in tree when enabled
               if (_danmakuUserEnabled)
                 Positioned(
                   key: const ValueKey('danmaku'),
-                  top: _showControls ? 36 : 0,
+                  top: _showControls == true ? 36 : 0,
                   left: 0,
                   right: 0,
-                  bottom: _showControls ? 48 : 0,
+                  bottom: _showControls == true ? 48 : 0,
                   child: DanmakuScreen(
                     createdController: (c) => danmakuController = c,
                     option: DanmakuOption(
@@ -743,6 +726,8 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
             ],
           ),
         ),
+      ),
+    ),
     );
   }
 
@@ -887,9 +872,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         height: 36,
         alignment: Alignment.center,
         child: Text(
-          isHardware ? '硬' : '软',
+          isHardware ? '软' : '硬',
           style: TextStyle(
-            color: isHardware ? Colors.white70 : Colors.amber,
+            color: isHardware ? Colors.amber : Colors.white70,
             fontSize: 14,
             fontWeight: FontWeight.w600,
           ),

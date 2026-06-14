@@ -112,8 +112,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var liveDuration = "00:00:00".obs;
   Timer? _liveDurationTimer;
 
-  Timer? _resizeDebounce;
-
   @override
   void onInit() {
     WidgetsBinding.instance.addObserver(this);
@@ -123,14 +121,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     loadData();
 
     scrollController.addListener(scrollListener);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) => _applyDanmakuScale());
-
-    ever(AppSettingsController.instance.danmuSize, (_) => _applyDanmakuScale());
-    ever(AppSettingsController.instance.danmuSpeed, (_) => _applyDanmakuScale());
-    ever(AppSettingsController.instance.danmuArea, (_) => _applyDanmakuScale());
-    ever(AppSettingsController.instance.danmuOpacity, (_) => _applyDanmakuScale());
-    ever(AppSettingsController.instance.danmuFontWeight, (_) => _applyDanmakuScale());
     super.onInit();
   }
 
@@ -139,28 +129,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         ScrollDirection.forward) {
       disableAutoScroll.value = true;
     }
-  }
-
-  @override
-  void didChangeMetrics() {
-    super.didChangeMetrics();
-    if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
-    _resizeDebounce?.cancel();
-    _resizeDebounce = Timer(const Duration(milliseconds: 200), _applyDanmakuScale);
-  }
-
-  void _applyDanmakuScale() async {
-    try {
-      final bounds = await windowManager.getBounds();
-      var scale = (bounds.width / 1920).clamp(0.5, 3.0);
-      updateDanmuOption(DanmakuOption(
-        fontSize: AppSettingsController.instance.danmuSize.value * scale,
-        area: AppSettingsController.instance.danmuArea.value,
-        duration: (AppSettingsController.instance.danmuSpeed.value.toInt() * scale).round().clamp(4, 20),
-        opacity: AppSettingsController.instance.danmuOpacity.value,
-        fontWeight: AppSettingsController.instance.danmuFontWeight.value,
-      ));
-    } catch (e) { Log.logPrint(e); }
   }
 
   /// 初始化自动关闭倒计时
@@ -237,7 +205,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 接收到WebSocket信息
   void onWSMessage(LiveMessage msg) {
     if (msg.type == LiveMessageType.chat) {
-      if (messages.length > 200 && !disableAutoScroll.value) {
+      if (messages.length > 100 && !disableAutoScroll.value) {
         messages.removeAt(0);
       }
 
@@ -1049,7 +1017,6 @@ ${error?.stackTrace}''');
   @override
   void onClose() {
     WidgetsBinding.instance.removeObserver(this);
-    _resizeDebounce?.cancel();
     scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
 

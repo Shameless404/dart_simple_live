@@ -11,6 +11,7 @@ import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
+import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/mini_player_launcher.dart';
 import 'package:simple_live_app/services/mini_player_manager.dart';
@@ -50,7 +51,6 @@ Widget buildFullControls(
     child: Stack(
       children: [
         Container(),
-        buildDanmuView(videoState, controller),
 
         // 左下角SC显示
         Obx(
@@ -389,11 +389,12 @@ Widget buildFullControls(
                   ),
                 ),
               );
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      ],
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          buildDanmuView(videoState, controller),
+        ],
     ),
   );
 }
@@ -434,7 +435,6 @@ Widget buildControls(
   return Stack(
     children: [
       Container(),
-      buildDanmuView(videoState, controller),
 
       // 左下角SC显示
       Obx(
@@ -635,6 +635,7 @@ Widget buildControls(
           return const SizedBox.shrink();
         },
       ),
+      buildDanmuView(videoState, controller),
     ],
   );
 }
@@ -642,6 +643,7 @@ Widget buildControls(
 Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
   var padding = MediaQuery.of(videoState.context).padding;
   if (controller.danmakuView == null) {
+    final ctx = videoState.context;
     controller.danmakuView = DanmakuScreen(
       key: controller.globalDanmuKey,
       createdController: controller.initDanmakuController,
@@ -652,6 +654,62 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
         opacity: AppSettingsController.instance.danmuOpacity.value,
         fontWeight: AppSettingsController.instance.danmuFontWeight.value,
       ),
+      onDanmakuSecondaryTap: (item, globalPosition) {
+        if (item.userName == null || item.userName!.isEmpty) return;
+        final overlay = Overlay.of(ctx, rootOverlay: true);
+        late OverlayEntry menuEntry;
+        menuEntry = OverlayEntry(
+          builder: (_) => Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () {
+                    controller.danmakuController?.resume();
+                    menuEntry.remove();
+                  },
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+              Positioned(
+                left: globalPosition.dx,
+                top: globalPosition.dy,
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: GestureDetector(
+                      onTap: () {
+                        BlockedUsersService.instance.block(
+                          controller.site.id,
+                          item.userName!,
+                          item.text,
+                          anchorName: controller.detail.value?.userName ?? '',
+                        );
+                        showBlockUserToast(ctx, item.userName!);
+                        controller.danmakuController?.clear();
+                        controller.danmakuController?.resume();
+                        menuEntry.remove();
+                      },
+                      child: Text(
+                        "拉黑「${item.userName}」",
+                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500, fontSize: 14),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        overlay.insert(menuEntry);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.danmakuController?.pause();
+        });
+      },
     );
   }
   return Positioned.fill(
@@ -882,7 +940,6 @@ void showFollowUser(LiveRoomController controller) {
                     },
                     onRightClick: () => openMiniWindow(
                       item,
-                      cascadeIndex: MiniPlayerManager.instance.nextIndex(),
                       skipConfirm: true,
                     ),
                   ),

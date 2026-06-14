@@ -174,7 +174,7 @@ class FollowUserPage extends GetView<FollowUserController> {
                   onLongPress: () {
                     setFollowTagDialog(item);
                   },
-                  onRightClick: () => openMiniWindow(item, cascadeIndex: MiniPlayerManager.instance.nextIndex(), skipConfirm: true),
+                  onRightClick: () => openMiniWindow(item, skipConfirm: true),
                 );
               },
             ),
