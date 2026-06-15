@@ -11,8 +11,8 @@ import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
-import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/mini_player_launcher.dart';
 import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
@@ -83,8 +83,10 @@ Widget buildFullControls(
             },
           ),
         ),
+        buildDanmuView(videoState, controller),
         Positioned.fill(
           child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
             onTap: controller.onTap,
             onDoubleTapDown: controller.onDoubleTap,
             onLongPress: () {
@@ -104,16 +106,6 @@ Widget buildFullControls(
                 width: double.infinity,
                 height: double.infinity,
                 color: Colors.transparent,
-                // child: Visibility(
-                //   //拖拽区域
-                //   visible: controller.smallWindowState.value,
-                //   child: DragToMoveArea(
-                //       child: Container(
-                //     width: double.infinity,
-                //     height: double.infinity,
-                //     color: Colors.transparent,
-                //   )),
-                // ),
               ),
             ),
           ),
@@ -389,12 +381,11 @@ Widget buildFullControls(
                   ),
                 ),
               );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-          buildDanmuView(videoState, controller),
-        ],
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ],
     ),
   );
 }
@@ -432,59 +423,60 @@ Widget buildControls(
   LiveRoomController controller,
 ) {
   GlobalKey volumeButtonkey = GlobalKey();
-  return Stack(
-    children: [
-      Container(),
+    return Stack(
+      children: [
+        Container(),
 
-      // 左下角SC显示
-      Obx(
-        () {
-          if (AppSettingsController.instance.playershowSuperChat.value &&
-              ((!Platform.isAndroid && !Platform.isIOS) ||
-                  controller.fullScreenState.value)) {
-            return Positioned(
-              left: 24,
-              bottom: 24,
-              child: PlayerSuperChatOverlay(controller: controller),
-            );
-          }
-          return const SizedBox.shrink();
-        },
-      ),
-
-      // 中间
-      Center(
-        child: StreamBuilder(
-          stream: videoState.widget.controller.player.stream.buffering,
-          initialData: videoState.widget.controller.player.state.buffering,
-          builder: (_, s) {
-            if (s.data == true) {
-              return const Center(
-                child: CircularProgressIndicator(),
+        // 左下角SC显示
+        Obx(
+          () {
+            if (AppSettingsController.instance.playershowSuperChat.value &&
+                ((!Platform.isAndroid && !Platform.isIOS) ||
+                    controller.fullScreenState.value)) {
+              return Positioned(
+                left: 24,
+                bottom: 24,
+                child: PlayerSuperChatOverlay(controller: controller),
               );
             }
             return const SizedBox.shrink();
           },
         ),
-      ),
-      Positioned.fill(
-        child: GestureDetector(
-          onTap: controller.onTap,
-          onDoubleTapDown: controller.onDoubleTap,
-          onVerticalDragStart: controller.onVerticalDragStart,
-          onVerticalDragUpdate: controller.onVerticalDragUpdate,
-          onVerticalDragEnd: controller.onVerticalDragEnd,
-          //onLongPress: controller.showDebugInfo,
-          child: MouseRegion(
-            onEnter: controller.onEnter,
-            child: Container(
-              width: double.infinity,
-              height: double.infinity,
-              color: Colors.transparent,
+
+        Center(
+          child: // 中间
+              StreamBuilder(
+            stream: videoState.widget.controller.player.stream.buffering,
+            initialData: videoState.widget.controller.player.state.buffering,
+            builder: (_, s) {
+              if (s.data == true) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: controller.onTap,
+            onDoubleTapDown: controller.onDoubleTap,
+            onVerticalDragStart: controller.onVerticalDragStart,
+            onVerticalDragUpdate: controller.onVerticalDragUpdate,
+            onVerticalDragEnd: controller.onVerticalDragEnd,
+            //onLongPress: controller.showDebugInfo,
+            child: MouseRegion(
+              onEnter: controller.onEnter,
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                color: Colors.transparent,
+              ),
             ),
           ),
         ),
-      ),
       Obx(
         () => AnimatedPositioned(
           left: 0,
@@ -635,15 +627,14 @@ Widget buildControls(
           return const SizedBox.shrink();
         },
       ),
-      buildDanmuView(videoState, controller),
+        buildDanmuView(videoState, controller, topLayer: true),
     ],
   );
 }
 
-Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
+Widget buildDanmuView(VideoState videoState, LiveRoomController controller, {bool topLayer = false}) {
   var padding = MediaQuery.of(videoState.context).padding;
   if (controller.danmakuView == null) {
-    final ctx = videoState.context;
     controller.danmakuView = DanmakuScreen(
       key: controller.globalDanmuKey,
       createdController: controller.initDanmakuController,
@@ -654,84 +645,102 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
         opacity: AppSettingsController.instance.danmuOpacity.value,
         fontWeight: AppSettingsController.instance.danmuFontWeight.value,
       ),
-      onDanmakuSecondaryTap: (item, globalPosition) {
-        if (item.userName == null || item.userName!.isEmpty) return;
-        final overlay = Overlay.of(ctx, rootOverlay: true);
-        late OverlayEntry menuEntry;
-        menuEntry = OverlayEntry(
-          builder: (_) => Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: () {
-                    controller.danmakuController?.resume();
-                    menuEntry.remove();
-                  },
-                  child: Container(color: Colors.transparent),
-                ),
-              ),
-              Positioned(
-                left: globalPosition.dx,
-                top: globalPosition.dy,
-                child: Material(
-                  color: Colors.transparent,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: GestureDetector(
-                      onTap: () {
-                        BlockedUsersService.instance.block(
-                          controller.site.id,
-                          item.userName!,
-                          item.text,
-                          anchorName: controller.detail.value?.userName ?? '',
-                        );
-                        showBlockUserToast(ctx, item.userName!);
-                        controller.danmakuController?.clear();
-                        controller.danmakuController?.resume();
-                        menuEntry.remove();
-                      },
-                      child: Text(
-                        "拉黑「${item.userName}」",
-                        style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500, fontSize: 14),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+      onDanmakuSecondaryTap: (item, pos) =>
+          _onMainDanmakuSecondaryTap(item, pos, controller),
+    );
+  }
+  final danmuContent = Obx(
+    () {
+      if (controller.showDanmakuState.value) {
+        return Padding(
+          padding: controller.fullScreenState.value
+              ? EdgeInsets.only(
+                  top: AppSettingsController.instance.danmuTopMargin.value,
+                  bottom: AppSettingsController.instance.danmuBottomMargin.value,
+                )
+              : EdgeInsets.zero,
+          child: controller.danmakuView!,
         );
-        overlay.insert(menuEntry);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.danmakuController?.pause();
-        });
-      },
+      }
+      return const SizedBox.shrink();
+    },
+  );
+
+  if (topLayer) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: padding.top,
+      bottom: 48.0 + padding.bottom,
+      child: danmuContent,
     );
   }
   return Positioned.fill(
     top: padding.top,
     bottom: padding.bottom,
-    child: Obx(
-      () {
-        if (controller.showDanmakuState.value) {
-          return Padding(
-            padding: controller.fullScreenState.value
-                ? EdgeInsets.only(
-                    top: AppSettingsController.instance.danmuTopMargin.value,
-                    bottom: AppSettingsController.instance.danmuBottomMargin.value,
-                  )
-                : EdgeInsets.zero,
-            child: controller.danmakuView!,
-          );
-        }
-        return const SizedBox.shrink();
-      },
+    child: danmuContent,
+  );
+}
+
+OverlayEntry? _danmakuMenuEntry;
+
+void _onMainDanmakuSecondaryTap(DanmakuContentItem item, Offset globalPosition, LiveRoomController controller) {
+  if (item.userName == null || item.userName!.isEmpty) return;
+  _danmakuMenuEntry?.remove();
+  _danmakuMenuEntry = null;
+  final ctx = Get.overlayContext;
+  if (ctx == null) return;
+  final overlay = Overlay.of(ctx, rootOverlay: true);
+  late OverlayEntry menuEntry;
+  menuEntry = OverlayEntry(
+    builder: (_) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () {
+              menuEntry.remove();
+              _danmakuMenuEntry = null;
+            },
+            child: Container(color: Colors.transparent),
+          ),
+        ),
+        Positioned(
+          left: globalPosition.dx,
+          top: globalPosition.dy,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: GestureDetector(
+                onTap: () {
+                  final anchorName = controller.detail.value?.userName ?? '';
+                  BlockedUsersService.instance.block(
+                    controller.site.id,
+                    item.userName!,
+                    item.text,
+                    anchorName: anchorName,
+                  );
+                  showBlockUserToast(ctx, item.userName!);
+                  menuEntry.remove();
+                  _danmakuMenuEntry = null;
+                },
+                child: Text(
+                  "拉黑「${item.userName}」",
+                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w500, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     ),
   );
+  _danmakuMenuEntry = menuEntry;
+  overlay.insert(menuEntry);
 }
 
 void showLinesInfo(LiveRoomController controller) {
@@ -940,6 +949,7 @@ void showFollowUser(LiveRoomController controller) {
                     },
                     onRightClick: () => openMiniWindow(
                       item,
+                      cascadeIndex: MiniPlayerManager.instance.nextIndex(),
                       skipConfirm: true,
                     ),
                   ),

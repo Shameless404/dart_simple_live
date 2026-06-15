@@ -33,6 +33,8 @@ import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
+int _miniWindowCascadeIndex = 0;
+
 class LiveRoomPage extends GetView<LiveRoomController> {
   const LiveRoomPage({Key? key}) : super(key: key);
 
@@ -482,10 +484,12 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                       Obx(
                         () => ListView.separated(
                           controller: controller.scrollController,
-                          separatorBuilder: (_, i) => SizedBox(
-                            height: AppSettingsController
-                                    .instance.chatTextGap.value *
-                                2,
+                          separatorBuilder: (_, i) => Obx(
+                            () => SizedBox(
+                              height: AppSettingsController
+                                      .instance.chatTextGap.value *
+                                  2,
+                            ),
                           ),
                           padding: AppStyle.edgeInsetsA12,
                           itemCount: controller.messages.length,
@@ -909,7 +913,8 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   void _openMiniWindow(FollowUser item, {bool skipConfirm = false}) async {
-    await openMiniWindow(item, skipConfirm: skipConfirm);
+    await openMiniWindow(item, cascadeIndex: _miniWindowCascadeIndex, skipConfirm: skipConfirm);
+    _miniWindowCascadeIndex++;
   }
 }
 

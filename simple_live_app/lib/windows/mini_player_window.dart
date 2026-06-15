@@ -195,6 +195,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     );
     (player.platform as dynamic).setProperty('hwdec', 'no');
     (player.platform as dynamic).setProperty('framedrop', 'vo');
+    (player.platform as dynamic).setProperty('display-fps', '30');
     player.setVolume(0.0);
     _volume = 0.0;
     _logVf('init: player created, hwdec=no framedrop=vo volume=0.0');
@@ -324,9 +325,11 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     if (_hwdec) {
       await (player.platform as dynamic).setProperty('hwdec', 'auto');
       await (player.platform as dynamic).setProperty('framedrop', 'no');
+      await (player.platform as dynamic).setProperty('display-fps', '0');
     } else {
       await (player.platform as dynamic).setProperty('hwdec', 'no');
       await (player.platform as dynamic).setProperty('framedrop', 'vo');
+      await (player.platform as dynamic).setProperty('display-fps', '30');
     }
     _reloadStream();
   }

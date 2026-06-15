@@ -16,7 +16,7 @@ import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
 Future<void> openMiniWindow(FollowUser item,
-    {bool skipConfirm = false}) async {
+    {int cascadeIndex = -1, bool skipConfirm = false}) async {
   if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     return;
   }
@@ -106,7 +106,7 @@ Future<void> openMiniWindow(FollowUser item,
   } catch (e) {
     debugPrint('MiniPlayer: read cache failed: $e');
   }
-  final cascadeIndex = MiniPlayerManager.instance.nextIndex();
+  final idx = cascadeIndex >= 0 ? cascadeIndex : MiniPlayerManager.instance.nextIndex();
   var args = MiniPlayerArguments(
     roomId: item.roomId,
     siteId: item.siteId,
@@ -121,7 +121,7 @@ Future<void> openMiniWindow(FollowUser item,
     danmuStrokeWidth: settings.danmuStrokeWidth.value,
     danmakuSite: danmakuSite,
     danmakuJson: danmakuJson,
-    cascadeIndex: cascadeIndex,
+    cascadeIndex: idx,
     userName: userName,
     title: title,
   );
@@ -130,5 +130,5 @@ Future<void> openMiniWindow(FollowUser item,
   env['SIMPLE_LIVE_MINIPLAYER'] = jsonEncode(args.toJson());
   final proc = await Process.start(Platform.executable, [],
       environment: env, mode: ProcessStartMode.detached);
-  MiniPlayerManager.instance.register(proc, cascadeIndex);
+  MiniPlayerManager.instance.register(proc, idx);
 }
