@@ -15,6 +15,100 @@ import 'package:simple_live_app/widgets/filter_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:simple_live_app/widgets/page_grid_view.dart';
 
+void showFollowTagDialog(FollowUser item) {
+  if (!Get.isRegistered<FollowUserController>()) {
+    Get.put(FollowUserController());
+  }
+  final controller = Get.find<FollowUserController>();
+  /// 控制单选ui
+  List<FollowUserTag> copiedList = [
+    controller.tagList.first,
+    ...controller.tagList.skip(3),
+  ];
+  Rx<FollowUserTag> checkTag =
+      controller.tagList.indexOf(controller.filterMode.value) < 3
+          ? copiedList.first.obs
+          : controller.filterMode.value.obs;
+  final ScrollController scrollController = ScrollController();
+  Get.dialog(
+    AlertDialog(
+      contentPadding: const EdgeInsets.all(16.0),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12.0),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '设置标签',
+                style: TextStyle(
+                  fontSize: 18,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(
+                  Icons.check,
+                ),
+                onPressed: () {
+                  controller.setItemTag(item, checkTag.value);
+                  Get.back();
+                },
+              ),
+            ],
+          ),
+          const Divider(),
+          Obx(
+            () {
+              int selectedIndex = copiedList.indexOf(checkTag.value);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (selectedIndex >= 0) {
+                  scrollController.animateTo(
+                    selectedIndex * 60.0,
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                }
+              });
+              return SizedBox(
+                height: 300,
+                width: 300,
+                child: RadioGroup(
+                  groupValue: checkTag.value,
+                  onChanged: (value) {
+                    checkTag.value = value!;
+                  },
+                  child: ListView.builder(
+                    controller: scrollController,
+                    itemCount: copiedList.length,
+                    itemBuilder: (context, index) {
+                      var tagItem = copiedList[index];
+                      return Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                                color: Colors.grey.shade300, width: 1.0),
+                          ),
+                        ),
+                        child: RadioListTile<FollowUserTag>(
+                          title: Text(tagItem.tag),
+                          value: tagItem,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class FollowUserPage extends GetView<FollowUserController> {
   const FollowUserPage({Key? key}) : super(key: key);
 
@@ -185,94 +279,7 @@ class FollowUserPage extends GetView<FollowUserController> {
   }
 
   void setFollowTagDialog(FollowUser item) {
-    /// 控制单选ui
-    List<FollowUserTag> copiedList = [
-      controller.tagList.first,
-      ...controller.tagList.skip(3),
-    ];
-    Rx<FollowUserTag> checkTag =
-        controller.tagList.indexOf(controller.filterMode.value) < 3
-            ? copiedList.first.obs
-            : controller.filterMode.value.obs;
-    final ScrollController scrollController = ScrollController();
-    Get.dialog(
-      AlertDialog(
-        contentPadding: const EdgeInsets.all(16.0),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12.0),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 标题栏
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '设置标签',
-                  style: TextStyle(
-                    fontSize: 18,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.check,
-                  ),
-                  onPressed: () {
-                    controller.setItemTag(item, checkTag.value);
-                    Get.back();
-                  },
-                ),
-              ],
-            ),
-            const Divider(),
-            Obx(
-              () {
-                int selectedIndex = copiedList.indexOf(checkTag.value);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (selectedIndex >= 0) {
-                    scrollController.animateTo(
-                      selectedIndex * 60.0, // 假设每项高度为 60
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                    );
-                  }
-                });
-                return SizedBox(
-                  height: 300,
-                  width: 300,
-                  child: RadioGroup(
-                    groupValue: checkTag.value,
-                    onChanged: (value) {
-                      checkTag.value = value!;
-                    },
-                    child: ListView.builder(
-                      controller: scrollController,
-                      itemCount: copiedList.length,
-                      itemBuilder: (context, index) {
-                        var tagItem = copiedList[index];
-                        return Container(
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                  color: Colors.grey.shade300, width: 1.0),
-                            ),
-                          ),
-                          child: RadioListTile<FollowUserTag>(
-                            title: Text(tagItem.tag),
-                            value: tagItem,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+    showFollowTagDialog(item);
   }
 
   void showTagsManager() {

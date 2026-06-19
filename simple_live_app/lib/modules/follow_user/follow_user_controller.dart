@@ -141,16 +141,19 @@ class FollowUserController extends BasePageController<FollowUser> {
   }
   // 修改item的标签
   void setItemTag(FollowUser item, FollowUserTag targetTag) {
-    FollowUserTag tarTag = targetTag;
-    FollowUserTag curTag =
-    tagList.firstWhere((tag) => tag.tag == item.tag);
-    // 从当前标签（非全部）删除item 向目标标签(全部包含所有item == 非全部)添加item
-    curTag.userId.remove(item.id);
-    tarTag.userId.addIf(!tarTag.userId.contains(item.id), item.id);
-    // 数据库更新
-    item.tag = tarTag.tag;
-    updateTag(curTag);
-    updateTag(tarTag);
+    if (targetTag.id == "0") {
+      // 目标为"全部"：从所有自定义标签移除
+      for (var tag in userTagList) {
+        tag.userId.remove(item.id);
+        updateTag(tag);
+      }
+    }
+    if (targetTag.id != "0" && targetTag.id != "1" && targetTag.id != "2") {
+      // 目标为自定义标签：追加到目标，不影响其他标签
+      targetTag.userId.addIf(!targetTag.userId.contains(item.id), item.id);
+      updateTag(targetTag);
+    }
+    item.tag = targetTag.tag;
     updateItem(item);
     filterData();
   }

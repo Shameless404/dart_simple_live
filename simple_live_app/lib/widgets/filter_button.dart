@@ -20,16 +20,16 @@ class FilterButton extends StatelessWidget {
       child: Container(
         padding: AppStyle.edgeInsetsH12.copyWith(top: 4, bottom: 4),
         decoration: BoxDecoration(
+          color: selected ? Colors.white : null,
           border: Border.all(
-              color: selected
-                  ? Theme.of(context).textTheme.bodyMedium!.color!
-                  : Colors.grey),
+            color: selected ? Colors.white30 : Colors.grey,
+          ),
           borderRadius: AppStyle.radius24,
         ),
         child: Text(
           text,
           style: selected
-              ? Theme.of(context).textTheme.bodyMedium
+              ? const TextStyle(color: Colors.black)
               : Theme.of(context).textTheme.bodyMedium!.copyWith(
                     color: Colors.grey,
                   ),

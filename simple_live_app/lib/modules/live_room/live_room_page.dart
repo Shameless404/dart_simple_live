@@ -21,6 +21,7 @@ import 'package:simple_live_app/services/mini_player_launcher.dart';
 import 'package:simple_live_app/services/blocked_users_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
+import 'package:simple_live_app/widgets/filter_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:simple_live_app/widgets/keep_alive_wrapper.dart';
 import 'package:simple_live_app/widgets/net_image.dart';
@@ -30,6 +31,8 @@ import 'package:simple_live_app/widgets/settings/settings_number.dart';
 import 'package:simple_live_app/widgets/settings/settings_switch.dart';
 import 'package:simple_live_app/widgets/superchat_card.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
+import 'package:simple_live_app/models/db/follow_user_tag.dart';
+import 'package:simple_live_app/modules/follow_user/follow_user_page.dart';
 import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
@@ -934,6 +937,7 @@ class _FollowListWithSearch extends StatefulWidget {
 class _FollowListWithSearchState extends State<_FollowListWithSearch> {
   final _searchCtrl = TextEditingController();
   String _query = '';
+  String? _selectedTagId;
 
   @override
   void dispose() {
@@ -972,17 +976,62 @@ class _FollowListWithSearchState extends State<_FollowListWithSearch> {
               onChanged: (v) => setState(() => _query = v),
             ),
           ),
+          Obx(
+            () {
+              final tags = FollowService.instance.followTagList;
+              if (tags.isEmpty) return const SizedBox.shrink();
+              return SizedBox(
+                height: 32,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  itemCount: tags.length,
+                  itemBuilder: (_, i) {
+                    final tag = tags[i];
+                    final selected = _selectedTagId == tag.id;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterButton(
+                        text: tag.tag,
+                        selected: selected,
+                        onTap: () {
+                          setState(() {
+                            _selectedTagId = selected ? null : tag.id;
+                          });
+                        },
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
           Expanded(
             child: Obx(
               () {
-                final list = _query.isEmpty
-                    ? FollowService.instance.liveList
+                final allUsers = _query.isEmpty
+                    ? FollowService.instance.followList
                     : FollowService.instance.followList
                         .where((u) => u.userName
                             .toLowerCase()
                             .contains(_query.toLowerCase()))
                         .toList()
                         .obs;
+                FollowUserTag? selectedTag;
+                if (_selectedTagId != null) {
+                  try {
+                    selectedTag = FollowService
+                        .instance.followTagList
+                        .firstWhere((t) => t.id == _selectedTagId);
+                  } catch (_) {}
+                }
+                final list = _query.isNotEmpty
+                    ? allUsers.toList()
+                    : selectedTag == null
+                        ? allUsers.toList()
+                        : allUsers
+                            .where((u) => selectedTag!.userId.contains(u.id))
+                            .toList();
                 return Stack(
                   children: [
                     RefreshIndicator(
@@ -1004,6 +1053,7 @@ class _FollowListWithSearchState extends State<_FollowListWithSearch> {
                                   item.roomId,
                                 );
                               },
+                              onLongPress: () => showFollowTagDialog(item),
                               onRightClick: () => widget.onRightClick(item),
                             ),
                           );

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
+
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -110,48 +110,13 @@ class MiniPlayerApp extends StatelessWidget {
 
 Player? globalMiniPlayer;
 
-class _PinToggleButton extends StatefulWidget {
-  const _PinToggleButton();
-
-  @override
-  State<_PinToggleButton> createState() => _PinToggleButtonState();
+void _logVf(String msg) {
+  try {
+    final f = File(r'D:\simple_live\minipayer_debug.log');
+    f.writeAsStringSync('${DateTime.now().toIso8601String()} $msg\n', mode: FileMode.append);
+  } catch (_) {}
 }
 
-class _PinToggleButtonState extends State<_PinToggleButton> {
-  bool _isPinned = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _initPinned();
-  }
-
-  Future<void> _initPinned() async {
-    final pinned = await windowManager.isAlwaysOnTop();
-    if (mounted) setState(() => _isPinned = pinned);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () async {
-        final newValue = !_isPinned;
-        await windowManager.setAlwaysOnTop(newValue);
-        if (mounted) setState(() => _isPinned = newValue);
-      },
-      child: Container(
-        width: 36,
-        height: 36,
-        alignment: Alignment.center,
-        child: Icon(
-          Icons.push_pin,
-          color: _isPinned ? Colors.amber : Colors.white70,
-          size: 18,
-        ),
-      ),
-    );
-  }
-}
 
 class MiniPlayerPage extends StatefulWidget {
   final MiniPlayerArguments args;
@@ -166,11 +131,11 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   late final VideoController videoController;
   DanmakuController? danmakuController;
   LiveDanmaku? liveDanmaku;
-  bool _isOverlayActive = false;
   bool _danmakuUserEnabled = false;
-  bool? _showControls = false;
-  bool _isMaximized = false;
+  bool? _showControls; // null = hidden, true = shown (null-form)
   bool _isFullscreen = false;
+  bool _isPinned = true;
+  bool _showMoreMenu = false;
   late double _danmuSize;
   late double _danmuSpeed;
   double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
@@ -219,6 +184,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     _logVf('dispose: cleaning up');
     globalMiniPlayer = null;
     _cleanupTimer?.cancel();
+    _showMoreMenu = false;
     _playingSub?.cancel();
     _volumeSub?.cancel();
     liveDanmaku?.stop();
@@ -230,6 +196,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   Future<void> _play() async {
     _logVf('_play: start');
     await windowManager.setAlwaysOnTop(true);
+    if (mounted) setState(() => _isPinned = true);
     final sizeFuture = _waitForVideoSize();
     await _reloadStream();
     _logVf('_play: reloadStream done, waiting for video size');
@@ -300,7 +267,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       final detail = await site.getRoomDetail(roomId: widget.args.roomId);
       final qualities = await site.getPlayQualites(detail: detail);
       if (qualities.isEmpty) { _logVf('ABORT: no qualities'); return; }
-      final qualityIdx = _hwdec ? 0 : (qualities.length - 1);
+      final qualityIdx = _hwdec ? 0 : (qualities.length > 1 ? qualities.length - 2 : 0);
       final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[qualityIdx]);
       _logVf('qualities: ${qualities.length}, picked idx=$qualityIdx ${_hwdec ? "best" : "worst"}');
       if (playUrl.urls.isEmpty) { _logVf('ABORT: no urls'); return; }
@@ -334,13 +301,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     _reloadStream();
   }
 
-  void _logVf(String msg) {
-    try {
-      final f = File(r'D:\simple_live\minipayer_debug.log');
-      f.writeAsStringSync('${DateTime.now().toIso8601String()} $msg\n', mode: FileMode.append);
-    } catch (_) {}
-  }
-
   void _refreshStream() {
     _logVf('refreshStream');
     _reloadStream();
@@ -353,9 +313,10 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     _isFullscreen = !isFullscreen;
     if (_isFullscreen) {
       _showControls = null;
+      _showMoreMenu = false;
       _cleanupTimer?.cancel();
     } else {
-      _showControls = false;
+      _showControls = null;
     }
     if (mounted) setState(() {});
   }
@@ -365,7 +326,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       _logVf('exitFullscreen');
       await windowManager.setFullScreen(false);
       _isFullscreen = false;
-      _showControls = false;
+      _showControls = null;
       if (mounted) setState(() {});
     }
   }
@@ -450,8 +411,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           _setupDanmakuHandlers();
           await liveDanmaku!.start(args);
           break;
-        }
-      }
+  }
+}
+
       _logVf('danmaku: connected');
     } catch (e) { _logVf('danmaku ERROR: $e'); }
   }
@@ -474,9 +436,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   }
 
   void _onDanmakuSecondaryTap(DanmakuContentItem item, Offset globalPosition) {
+    _logVf('danmakuSecondaryTap: user=${item.userName} pos=${globalPosition.dx.round()},${globalPosition.dy.round()}');
     if (item.userName == null || item.userName!.isEmpty) return;
     final overlay = Overlay.of(context, rootOverlay: true);
-    _isOverlayActive = true;
     late OverlayEntry menuEntry;
     menuEntry = OverlayEntry(
       builder: (_) => Stack(
@@ -486,7 +448,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
               onTap: () {
                 danmakuController?.resume();
                 menuEntry.remove();
-                _isOverlayActive = false;
               },
               child: Container(color: Colors.transparent),
             ),
@@ -513,7 +474,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                     showBlockUserToast(context, item.userName!);
                     danmakuController?.resume();
                     menuEntry.remove();
-                    _isOverlayActive = false;
                   },
                   child: Text(
                     "拉黑「${item.userName}」",
@@ -579,19 +539,21 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       backgroundColor: Colors.black,
       body: MouseRegion(
         onEnter: (_) {
-          if (_showControls == null) return;
+          _logVf('mouse: enter');
+          if (_isFullscreen) return;
           _cleanupTimer?.cancel();
           _showControls = true;
           if (mounted) setState(() {});
         },
         onExit: (_) {
+          _logVf('mouse: exit (scheduling hide in 3s)');
           if (_showControls == null) return;
           _cleanupTimer?.cancel();
           _cleanupTimer = Timer(const Duration(seconds: 3), () {
             if (_showControls == null) return;
-            if (!_isOverlayActive) {
-              _showControls = false;
-            }
+            _logVf('cleanupTimer: full cleanup to null');
+            _showControls = null;
+            _showMoreMenu = false;
             if (mounted) setState(() {});
           });
         },
@@ -599,61 +561,78 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           behavior: HitTestBehavior.translucent,
           onDoubleTap: _toggleFullscreen,
           child: Focus(
-          autofocus: true,
-          onKeyEvent: (node, event) {
-            if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
-              if (_isFullscreen) {
-                _exitFullscreen();
-                return KeyEventResult.handled;
+            autofocus: true,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+                if (_isFullscreen) {
+                  _exitFullscreen();
+                  return KeyEventResult.handled;
+                }
+                if (_showMoreMenu) {
+                  _showMoreMenu = false;
+                  if (mounted) setState(() {});
+                  return KeyEventResult.handled;
+                }
               }
-            }
-            return KeyEventResult.ignored;
-          },
-          child: Stack(
-            children: [
-              // Video player — no native controls overlay (CPU optimization)
-              Positioned.fill(
-                key: const ValueKey('video'),
-                child: Video(
+              return KeyEventResult.ignored;
+            },
+            child: Stack(
+              children: [
+                // Video player — no native controls overlay
+                Positioned.fill(
+                  key: const ValueKey('video'),
+                  child: Video(
                     controller: videoController,
                     fill: Colors.black,
                     controls: null,
                     wakelock: false,
                   ),
                 ),
-              // Custom title bar — replaces OS title bar
-              if (_showControls == true)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: 36,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.black87, Colors.transparent],
-                            ),
-                          ),
+                // Danmaku — behind controls/title/menu
+                if (_danmakuUserEnabled)
+                  Positioned(
+                    key: const ValueKey('danmaku'),
+                    top: _showControls == true ? 36 : 0,
+                    left: 0,
+                    right: 0,
+                    bottom: _showControls == true ? 48 : 0,
+                    child: DanmakuScreen(
+                      createdController: (c) => danmakuController = c,
+                      option: DanmakuOption(
+                        fontSize: _danmuSize,
+                        duration: _danmuSpeed.toInt(),
+                        area: widget.args.danmuArea,
+                        opacity: widget.args.danmuOpacity,
+                        fontWeight: widget.args.danmuFontWeight,
+                        showStroke: widget.args.danmuStrokeWidth > 0,
+                      ),
+                      onDanmakuSecondaryTap: (item, pos) => _onDanmakuSecondaryTap(item, pos),
+                    ),
+                  ),
+                // Custom title bar — replaces OS title bar
+                if (_showControls == true)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 36,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.black87, Colors.transparent],
                         ),
                       ),
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 200,
-                        bottom: 0,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onPanStart: (details) {
-                            windowManager.startDragging();
-                          },
-                          child: SizedBox.expand(
-                            child: Align(
-                              alignment: Alignment.centerLeft,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onPanDown: (details) {
+                                _logVf('titleBar: startDragging');
+                                windowManager.startDragging();
+                              },
                               child: Padding(
                                 padding: const EdgeInsets.only(left: 8),
                                 child: Text(
@@ -664,73 +643,88 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                               ),
                             ),
                           ),
-                        ),
+                          _TitleBarButton(Icons.more_horiz, _toggleMoreMenu),
+                          _TitleBarCloseButton(),
+                        ],
                       ),
-                      Positioned(
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _HwdecButton(
-                              isHardware: _hwdec,
-                              onTap: _toggleHwdecAndReload,
+                    ),
+                  ),
+                // Custom controls bar (null-form, only in tree on hover)
+                if (_showControls == true)
+                  _buildControlsBar(),
+                // "更多"菜单 — null-form, 全屏时由 _toggleFullscreen 关
+                if (_showMoreMenu)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: Container(
+                        width: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2D2D2D),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.white24, width: 0.5),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _HoverItem(
+                                onTap: _toggleHwdecAndReload,
+                                child: Container(
+                                  height: 30,
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    _hwdec ? '软' : '硬',
+                                  style: TextStyle(
+                                    color: _hwdec ? Colors.amber : Colors.white70,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
                             ),
-                            // Reload stream button
-                            _TitleBarButton(Icons.refresh, _refreshStream),
-                            _TitleBarButton(Icons.fast_rewind, () => _changeDanmuSpeed(1)),
-
-                            _TitleBarButton(Icons.fast_forward, () => _changeDanmuSpeed(-1)),
-
-                            _TitleBarButton(Icons.remove, () => _changeDanmuSize(-1)),
-
-                            _TitleBarButton(Icons.add, () => _changeDanmuSize(1)),
-                            _buildDanmakuToggle(),
-                            const _PinToggleButton(),
-                            _TitleBarButton(Icons.open_in_browser, _openInBrowser),
-                            _TitleBarButton(Icons.minimize, () => windowManager.minimize()),
-                            _TitleBarButton(
-                              _isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                              _toggleFullscreen,
-                            ),
-                            _TitleBarCloseButton(),
+                            _buildMoreMenuItem(Icons.refresh, _refreshStream),
+                            _buildMoreMenuItem(Icons.arrow_left, () => _changeDanmuSpeed(1)),
+                            _buildMoreMenuItem(Icons.arrow_right, () => _changeDanmuSpeed(-1)),
+                            _buildMoreMenuItem(Icons.text_decrease, () => _changeDanmuSize(-1)),
+                            _buildMoreMenuItem(Icons.text_increase, () => _changeDanmuSize(1)),
+                            _buildMoreMenuItem(_danmakuUserEnabled ? Icons.visibility : Icons.visibility_off, _toggleDanmaku),
+                            _buildMoreMenuItem(Icons.open_in_browser, _openInBrowser),
+                            _buildMoreMenuItem(_isPinned ? Icons.push_pin : Icons.push_pin_outlined, _togglePin, color: _isPinned ? Colors.amber : null),
+                            _buildMoreMenuItem(Icons.minimize, () => windowManager.minimize()),
+                            _buildMoreMenuItem(Icons.fullscreen, _toggleFullscreen),
                           ],
                         ),
                       ),
-                    ],
                   ),
-                ),
-              // Custom controls bar (null-form, only in tree on hover)
-              if (_showControls == true)
-                _buildControlsBar(),
-              // Danmaku — always in tree when enabled
-              if (_danmakuUserEnabled)
-                Positioned(
-                  key: const ValueKey('danmaku'),
-                  top: _showControls == true ? 36 : 0,
-                  left: 0,
-                  right: 0,
-                  bottom: _showControls == true ? 48 : 0,
-                  child: DanmakuScreen(
-                    createdController: (c) => danmakuController = c,
-                    option: DanmakuOption(
-                      fontSize: _danmuSize,
-                      duration: _danmuSpeed.toInt(),
-                      area: widget.args.danmuArea,
-                      opacity: widget.args.danmuOpacity,
-                      fontWeight: widget.args.danmuFontWeight,
-                      showStroke: widget.args.danmuStrokeWidth > 0,
-                    ),
-                    onDanmakuSecondaryTap: (item, pos) => _onDanmakuSecondaryTap(item, pos),
-                  ),
-                ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
+      );
+    }
+  void _toggleMoreMenu() {
+    _logVf('toggleMoreMenu was=$_showMoreMenu');
+    _showMoreMenu = !_showMoreMenu;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _togglePin() async {
+    final newVal = !_isPinned;
+    await windowManager.setAlwaysOnTop(newVal);
+    if (mounted) setState(() => _isPinned = newVal);
+  }
+
+  Widget _buildMoreMenuItem(IconData icon, VoidCallback onTap, {Color? color}) {
+    return _HoverItem(
+      onTap: onTap,
+      child: Container(
+        height: 30,
+        alignment: Alignment.center,
+        child: Icon(icon, color: color ?? Colors.white70, size: 16),
       ),
-    ),
     );
   }
 
@@ -753,8 +747,11 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           children: [
             const SizedBox(width: 4),
             // Play/Pause button
-            GestureDetector(
-              onTap: () => player.playOrPause(),
+            _HoverItem(
+              onTap: () {
+                _logVf('controls: playOrPause (playing=${player.state.playing})');
+                player.playOrPause();
+              },
               child: Container(
                 width: 40,
                 height: 40,
@@ -768,15 +765,17 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
             ),
             const SizedBox(width: 4),
             // Volume icon (toggle mute)
-            GestureDetector(
+            _HoverItem(
               onTap: () {
+                _logVf('controls: volumeToggle from=${_volume.toStringAsFixed(2)} last=${_lastVolume.toStringAsFixed(2)}');
                 if (_volume > 0) {
-                  _lastVolume = _volume;  // 保存当前音量
-                  _volume = 0.0;  // 静音
+                  _lastVolume = _volume;
+                  _volume = 0.0;
                 } else {
-                  _volume = _lastVolume;  // 恢复静音前音量
+                  _volume = _lastVolume;
                 }
-                player.setVolume(_volume * 100.0);  // 转换成 media_kit 范围
+                _logVf('controls: volumeToggle to=${_volume.toStringAsFixed(2)}');
+                player.setVolume(_volume * 100.0);
                 setState(() {});
               },
               child: Container(
@@ -805,6 +804,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                   min: 0,
                   max: 100,
                   onChanged: (v) {
+                    _logVf('controls: volumeSlider v=${v.round()}');
                     _volume = v / 100.0;  // 转换成 0.0-1.0
                     player.setVolume(v);  // 直接用 0-100 的值，media_kit 正确范围
                     setState(() {});
@@ -819,82 +819,90 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     );
   }
 
-  Widget _buildDanmakuToggle() {
-    return GestureDetector(
-      onTap: _toggleDanmaku,
-      child: Container(
-        width: 36,
-        height: 36,
-        alignment: Alignment.center,
-        child: Icon(
-          _danmakuUserEnabled ? Icons.visibility : Icons.visibility_off,
-          color: Colors.white70,
-          size: 18,
-        ),
-      ),
-    );
-  }
-
   Widget _TitleBarButton(IconData icon, VoidCallback onTap, {Color color = Colors.white70}) {
     return GestureDetector(
-      onTap: onTap,
+      behavior: HitTestBehavior.translucent,
+      onTapDown: (_) => onTap(),
       child: Container(
-        width: 36,
-        height: 36,
+        width: 44,
+        height: 44,
         alignment: Alignment.center,
-        child: Icon(icon, color: color, size: 16),
+        child: Icon(icon, color: color, size: 20),
       ),
     );
   }
 
   Widget _TitleBarCloseButton() {
-    return GestureDetector(
+    return _HoverItem(
+      useTranslucent: true,
+      hoverColor: Colors.red.withValues(alpha: 0.3),
+      pressColor: Colors.red,
       onTap: () async {
+        _logVf('closeButton: closing mini player');
         await globalMiniPlayer?.dispose();
         globalMiniPlayer = null;
         await windowManager.setPreventClose(false);
         await windowManager.destroy();
       },
       child: Container(
-        width: 36,
-        height: 36,
+        width: 44,
+        height: 44,
         alignment: Alignment.center,
-        child: const Icon(Icons.close, color: Colors.white70, size: 18),
+        child: const Icon(Icons.close, color: Colors.white70, size: 20),
       ),
     );
   }
 
-  Widget _HwdecButton({
-    required bool isHardware,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 36,
-        height: 36,
-        alignment: Alignment.center,
-        child: Text(
-          isHardware ? '软' : '硬',
-          style: TextStyle(
-            color: isHardware ? Colors.amber : Colors.white70,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
+}
 
-  void _toggleMaximize() {
-    _logVf('toggleMaximize: was=${_isMaximized}');
-    if (_isMaximized) {
-      windowManager.unmaximize();
-      _isMaximized = false;
+/// Lightweight hover/press feedback button — no animation controllers.
+class _HoverItem extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final bool useTranslucent;
+  final Color hoverColor;
+  final Color pressColor;
+
+  const _HoverItem({
+    required this.child,
+    required this.onTap,
+    this.useTranslucent = false,
+    this.hoverColor = const Color(0x1AFFFFFF),
+    this.pressColor = const Color(0x3DFFFFFF),
+  });
+
+  @override
+  State<_HoverItem> createState() => _HoverItemState();
+}
+
+class _HoverItemState extends State<_HoverItem> {
+  bool _isHovered = false;
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg;
+    if (_isPressed) {
+      bg = widget.pressColor;
+    } else if (_isHovered) {
+      bg = widget.hoverColor;
     } else {
-      windowManager.maximize();
-      _isMaximized = true;
+      bg = Colors.transparent;
     }
-    if (mounted) setState(() {});
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        behavior: widget.useTranslucent
+            ? HitTestBehavior.translucent
+            : HitTestBehavior.deferToChild,
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) => setState(() => _isPressed = false),
+        onTapCancel: () => setState(() => _isPressed = false),
+        onTap: widget.onTap,
+        child: Container(color: bg, child: widget.child),
+      ),
+    );
   }
 }

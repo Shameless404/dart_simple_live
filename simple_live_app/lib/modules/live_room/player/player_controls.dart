@@ -672,7 +672,10 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller, {boo
       right: 0,
       top: padding.top,
       bottom: 48.0 + padding.bottom,
-      child: danmuContent,
+      child: GestureDetector(
+        onDoubleTapDown: controller.onDoubleTap,
+        child: danmuContent,
+      ),
     );
   }
   return Positioned.fill(

@@ -223,9 +223,39 @@ class _MainWindowCloseHandler extends WindowListener {
   @override
   void onWindowClose() {
     Future(() async {
+      String? action;
+      try {
+        action = await Get.dialog<String>(
+          AlertDialog(
+            title: const Text('退出确认'),
+            content: const Text('是否同时关闭所有子窗口？'),
+            actions: [
+              TextButton(
+                onPressed: () => Get.back(result: 'cancel'),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Get.back(result: 'current'),
+                child: const Text('关闭当前'),
+              ),
+              TextButton(
+                onPressed: () => Get.back(result: 'all'),
+                child: const Text('关闭全部'),
+              ),
+            ],
+          ),
+        );
+      } catch (_) {
+        action = 'all';
+      }
+
+      if (action == 'cancel' || action == null) return;
+
       // 有序清理：触发所有 GetX Controller 的 onClose() → 包括 player.dispose()
       try {
-        MiniPlayerManager.instance.killAll();
+        if (action == 'all') {
+          MiniPlayerManager.instance.killAll();
+        }
         await Get.deleteAll(force: true);
       } catch (e) { Log.logPrint(e); }
       // 强制销毁窗口，跳过 Flutter 引擎的正常关闭序列，防止 hardError
