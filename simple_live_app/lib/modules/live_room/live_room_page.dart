@@ -36,8 +36,6 @@ import 'package:simple_live_app/modules/follow_user/follow_user_page.dart';
 import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
-int _miniWindowCascadeIndex = 0;
-
 class LiveRoomPage extends GetView<LiveRoomController> {
   const LiveRoomPage({Key? key}) : super(key: key);
 
@@ -916,8 +914,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   void _openMiniWindow(FollowUser item, {bool skipConfirm = false}) async {
-    await openMiniWindow(item, cascadeIndex: _miniWindowCascadeIndex, skipConfirm: skipConfirm);
-    _miniWindowCascadeIndex++;
+    await openMiniWindow(item, cascadeIndex: MiniPlayerManager.instance.nextIndex(), skipConfirm: skipConfirm);
   }
 }
 

@@ -1,4 +1,3 @@
-import 'dart:collection';
 import 'dart:io';
 
 class MiniPlayerManager {
@@ -6,17 +5,14 @@ class MiniPlayerManager {
   MiniPlayerManager._();
 
   final List<Process> _processes = [];
-  final Queue<int> _freed = Queue<int>();
   int _nextIdx = 0;
 
   int nextIndex() {
-    if (_freed.isNotEmpty) return _freed.removeFirst();
     return _nextIdx++;
   }
 
   void register(Process p, int idx) {
     _processes.add(p);
-    p.exitCode.whenComplete(() => _freed.add(idx));
   }
 
   void killAll() {
@@ -26,7 +22,6 @@ class MiniPlayerManager {
       } catch (_) {}
     }
     _processes.clear();
-    _freed.clear();
     _nextIdx = 0;
   }
 }

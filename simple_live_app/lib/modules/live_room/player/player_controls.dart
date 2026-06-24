@@ -27,6 +27,7 @@ Widget playerControls(
   LiveRoomController controller,
 ) {
   return Obx(() {
+    controller.showDanmakuState.value;
     if (controller.fullScreenState.value) {
       return buildFullControls(
         videoState,
@@ -83,7 +84,8 @@ Widget buildFullControls(
             },
           ),
         ),
-        buildDanmuView(videoState, controller),
+        if (controller.showDanmakuState.value)
+          buildDanmuView(videoState, controller),
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
@@ -249,8 +251,7 @@ Widget buildFullControls(
                   ),
                   if (!controller.showDanmakuState.value)
                     IconButton(
-                      onPressed: () => controller.showDanmakuState.value =
-                          !controller.showDanmakuState.value,
+                      onPressed: () => controller.toggleDanmakuFull(),
                       icon: const ImageIcon(
                         AssetImage('assets/icons/icon_danmaku_open.png'),
                         size: 24,
@@ -259,8 +260,7 @@ Widget buildFullControls(
                     ),
                   if (controller.showDanmakuState.value)
                     IconButton(
-                      onPressed: () => controller.showDanmakuState.value =
-                          !controller.showDanmakuState.value,
+                      onPressed: () => controller.toggleDanmakuFull(),
                       icon: const ImageIcon(
                         AssetImage('assets/icons/icon_danmaku_close.png'),
                         size: 24,
@@ -627,7 +627,8 @@ Widget buildControls(
           return const SizedBox.shrink();
         },
       ),
-        buildDanmuView(videoState, controller, topLayer: true),
+        if (controller.showDanmakuState.value)
+          buildDanmuView(videoState, controller, topLayer: true),
     ],
   );
 }
@@ -635,36 +636,56 @@ Widget buildControls(
 Widget buildDanmuView(VideoState videoState, LiveRoomController controller, {bool topLayer = false}) {
   var padding = MediaQuery.of(videoState.context).padding;
   if (controller.danmakuView == null) {
-    controller.danmakuView = DanmakuScreen(
-      key: controller.globalDanmuKey,
-      createdController: controller.initDanmakuController,
-      option: DanmakuOption(
-        fontSize: AppSettingsController.instance.danmuSize.value,
-        area: AppSettingsController.instance.danmuArea.value,
-        duration: AppSettingsController.instance.danmuSpeed.value.toInt(),
-        opacity: AppSettingsController.instance.danmuOpacity.value,
-        fontWeight: AppSettingsController.instance.danmuFontWeight.value,
+    controller.danmakuView = Listener(
+      onPointerDown: (event) {
+        if (event.buttons == 2) {
+          controller.pendingSecondaryDown = true;
+        }
+      },
+      onPointerUp: (event) {
+        if (!controller.pendingSecondaryDown) return;
+        controller.pendingSecondaryDown = false;
+        WidgetsBinding.instance.addPostFrameCallback((__) {
+          final wasHit = controller.danmakuSecondaryHit;
+          controller.danmakuSecondaryHit = false;
+          if (wasHit || controller.danmakuTransitioning) return;
+          if (!controller.showDanmakuState.value) return;
+          if (controller.danmakuController?.running == true) {
+            controller.danmakuController?.pause();
+            controller.liveDanmaku.stop();
+          } else {
+            controller.reconnectDanmaku();
+            controller.danmakuController?.resume();
+          }
+        });
+      },
+      behavior: HitTestBehavior.translucent,
+      child: DanmakuScreen(
+        key: controller.globalDanmuKey,
+        createdController: controller.initDanmakuController,
+        option: DanmakuOption(
+          fontSize: AppSettingsController.instance.danmuSize.value,
+          area: AppSettingsController.instance.danmuArea.value,
+          duration: AppSettingsController.instance.danmuSpeed.value.toInt(),
+          opacity: AppSettingsController.instance.danmuOpacity.value,
+          fontWeight: AppSettingsController.instance.danmuFontWeight.value,
+        ),
+        onDanmakuSecondaryTap: (item, pos) {
+          controller.danmakuSecondaryHit = true;
+          _onMainDanmakuSecondaryTap(item, pos, controller);
+        },
       ),
-      onDanmakuSecondaryTap: (item, pos) =>
-          _onMainDanmakuSecondaryTap(item, pos, controller),
     );
   }
-  final danmuContent = Obx(
-    () {
-      if (controller.showDanmakuState.value) {
-        return Padding(
-          padding: controller.fullScreenState.value
-              ? EdgeInsets.only(
-                  top: AppSettingsController.instance.danmuTopMargin.value,
-                  bottom: AppSettingsController.instance.danmuBottomMargin.value,
-                )
-              : EdgeInsets.zero,
-          child: controller.danmakuView!,
-        );
-      }
-      return const SizedBox.shrink();
-    },
-  );
+  final danmuContent = Obx(() => Padding(
+    padding: controller.fullScreenState.value
+        ? EdgeInsets.only(
+            top: AppSettingsController.instance.danmuTopMargin.value,
+            bottom: AppSettingsController.instance.danmuBottomMargin.value,
+          )
+        : EdgeInsets.zero,
+    child: controller.danmakuView!,
+  ));
 
   if (topLayer) {
     return Positioned(

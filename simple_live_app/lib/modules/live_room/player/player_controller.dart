@@ -189,6 +189,9 @@ mixin PlayerStateMixin on PlayerMixin {
 mixin PlayerDanmakuMixin on PlayerStateMixin {
   /// 弹幕控制器
   DanmakuController? danmakuController;
+  bool danmakuSecondaryHit = false;
+  bool pendingSecondaryDown = false;
+  bool danmakuTransitioning = false;
 
   void initDanmakuController(DanmakuController e) {
     danmakuController = e;

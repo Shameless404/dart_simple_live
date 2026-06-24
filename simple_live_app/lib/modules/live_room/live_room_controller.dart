@@ -13,7 +13,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
-import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
@@ -232,6 +231,26 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     liveDanmaku.onMessage = onWSMessage;
     liveDanmaku.onClose = onWSClose;
     liveDanmaku.onReady = onWSReady;
+  }
+
+  /// 断开并重新连接弹幕（用于右键空白恢复）
+  void reconnectDanmaku() {
+    liveDanmaku.stop();
+    liveDanmaku = site.liveSite.getDanmaku();
+    initDanmau();
+    liveDanmaku.start(detail.value?.danmakuData);
+  }
+
+  /// 弹幕开关：真断开 + 真隐藏 / 重连 + 显示
+  void toggleDanmakuFull() {
+    if (showDanmakuState.value) {
+      showDanmakuState.value = false;
+      liveDanmaku.stop();
+      danmakuController?.clear();
+    } else {
+      reconnectDanmaku();
+      showDanmakuState.value = true;
+    }
   }
 
   /// 接收到WebSocket信息
@@ -582,18 +601,17 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       return;
     }
     var id = "${site.id}_$roomId";
-    DBService.instance.addFollow(
-      FollowUser(
-        id: id,
-        roomId: roomId,
-        siteId: site.id,
-        userName: detail.value?.userName ?? "",
-        face: detail.value?.userAvatar ?? "",
-        addTime: DateTime.now(),
-      ),
+    var followUser = FollowUser(
+      id: id,
+      roomId: roomId,
+      siteId: site.id,
+      userName: detail.value?.userName ?? "",
+      face: detail.value?.userAvatar ?? "",
+      addTime: DateTime.now(),
     );
+    DBService.instance.addFollow(followUser);
+    FollowService.instance.addFollowItem(followUser);
     followed.value = true;
-    EventBus.instance.emit(Constant.kUpdateFollow, id);
   }
 
   /// 取消关注用户
@@ -607,8 +625,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     var id = "${site.id}_$roomId";
     DBService.instance.deleteFollow(id);
+    FollowService.instance.removeFollowItem(id);
     followed.value = false;
-    EventBus.instance.emit(Constant.kUpdateFollow, id);
   }
 
   void share() {

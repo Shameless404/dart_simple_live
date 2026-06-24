@@ -131,6 +131,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   late final VideoController videoController;
   DanmakuController? danmakuController;
   LiveDanmaku? liveDanmaku;
+  bool _danmakuSecondaryHit = false;
+  bool _pendingSecondaryDown = false;
+  bool _danmakuTransitioning = false;
   bool _danmakuUserEnabled = false;
   bool? _showControls; // null = hidden, true = shown (null-form)
   bool _isFullscreen = false;
@@ -255,8 +258,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     }
     targetWidth = targetWidth.clamp(280, 900);
     targetHeight = targetHeight.clamp(200, 700);
-    _logVf('resize: src=${w}x$h ratio=$aspectRatio target=${targetWidth}x$targetHeight');
-    await windowManager.setSize(Size(targetWidth, targetHeight));
+    final pos = await windowManager.getPosition();
+    _logVf('resize: src=${w}x$h ratio=$aspectRatio target=${targetWidth}x$targetHeight pos=${pos.dx.round()}x${pos.dy.round()}');
+    await windowManager.setBounds(Rect.fromLTWH(pos.dx, pos.dy, targetWidth, targetHeight));
   }
 
   Future<void> _reloadStream() async {
@@ -446,7 +450,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
           Positioned.fill(
             child: GestureDetector(
               onTap: () {
-                danmakuController?.resume();
                 menuEntry.remove();
               },
               child: Container(color: Colors.transparent),
@@ -472,7 +475,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                       anchorName: widget.args.userName,
                     );
                     showBlockUserToast(context, item.userName!);
-                    danmakuController?.resume();
                     menuEntry.remove();
                   },
                   child: Text(
@@ -487,9 +489,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       ),
     );
     overlay.insert(menuEntry);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      danmakuController?.pause();
-    });
   }
 
   void _toggleDanmaku() {
@@ -520,7 +519,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   }
 
   void _changeDanmuSpeed(double delta) {
-    _danmuSpeed = (_danmuSpeed + delta).clamp(4.0, 20.0);
+    _danmuSpeed = (_danmuSpeed + delta).clamp(1.0, 20.0);
     _logVf('danmuSpeed: delta=$delta value=$_danmuSpeed');
     danmakuController?.updateOption(DanmakuOption(
       fontSize: _danmuSize,
@@ -596,17 +595,45 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                     left: 0,
                     right: 0,
                     bottom: _showControls == true ? 48 : 0,
-                    child: DanmakuScreen(
-                      createdController: (c) => danmakuController = c,
-                      option: DanmakuOption(
-                        fontSize: _danmuSize,
-                        duration: _danmuSpeed.toInt(),
-                        area: widget.args.danmuArea,
-                        opacity: widget.args.danmuOpacity,
-                        fontWeight: widget.args.danmuFontWeight,
-                        showStroke: widget.args.danmuStrokeWidth > 0,
+                    child: Listener(
+                      onPointerDown: (event) {
+                        if (event.buttons == 2) {
+                          _pendingSecondaryDown = true;
+                        }
+                      },
+                      onPointerUp: (event) {
+                        if (!_pendingSecondaryDown) return;
+                        _pendingSecondaryDown = false;
+                        WidgetsBinding.instance.addPostFrameCallback((__) {
+                          final wasHit = _danmakuSecondaryHit;
+                          _danmakuSecondaryHit = false;
+                          if (wasHit || _danmakuTransitioning) return;
+                          if (!_danmakuUserEnabled) return;
+                          if (danmakuController?.running == true) {
+                            danmakuController?.pause();
+                            liveDanmaku?.stop();
+                          } else {
+                            _connectDanmaku();
+                            danmakuController?.resume();
+                          }
+                        });
+                      },
+                      behavior: HitTestBehavior.translucent,
+                      child: DanmakuScreen(
+                        createdController: (c) => danmakuController = c,
+                        option: DanmakuOption(
+                          fontSize: _danmuSize,
+                          duration: _danmuSpeed.toInt(),
+                          area: widget.args.danmuArea,
+                          opacity: widget.args.danmuOpacity,
+                          fontWeight: widget.args.danmuFontWeight,
+                          showStroke: widget.args.danmuStrokeWidth > 0,
+                        ),
+                        onDanmakuSecondaryTap: (item, pos) {
+                          _danmakuSecondaryHit = true;
+                          _onDanmakuSecondaryTap(item, pos);
+                        },
                       ),
-                      onDanmakuSecondaryTap: (item, pos) => _onDanmakuSecondaryTap(item, pos),
                     ),
                   ),
                 // Custom title bar — replaces OS title bar
@@ -645,9 +672,9 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                           ),
                           _TitleBarButton(Icons.more_horiz, _toggleMoreMenu),
                           _TitleBarCloseButton(),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
                   ),
                 // Custom controls bar (null-form, only in tree on hover)
                 if (_showControls == true)
@@ -657,15 +684,17 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                   Positioned(
                     top: 0,
                     right: 0,
-                    child: Container(
+                    child: GestureDetector(
+                      onDoubleTap: () {},
+                      child: Container(
                         width: 40,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2D2D2D),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.white24, width: 0.5),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Column(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2D2D2D),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.white24, width: 0.5),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Column(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -697,14 +726,15 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                           ],
                         ),
                       ),
-                  ),
-                ],
+                    ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
-    }
+        );
+      }
   void _toggleMoreMenu() {
     _logVf('toggleMoreMenu was=$_showMoreMenu');
     _showMoreMenu = !_showMoreMenu;
@@ -897,10 +927,12 @@ class _HoverItemState extends State<_HoverItem> {
         behavior: widget.useTranslucent
             ? HitTestBehavior.translucent
             : HitTestBehavior.deferToChild,
-        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapDown: (_) {
+          setState(() => _isPressed = true);
+          widget.onTap();
+        },
         onTapUp: (_) => setState(() => _isPressed = false),
         onTapCancel: () => setState(() => _isPressed = false),
-        onTap: widget.onTap,
         child: Container(color: bg, child: widget.child),
       ),
     );

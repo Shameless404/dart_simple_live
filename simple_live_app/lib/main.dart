@@ -69,14 +69,14 @@ void main() async {
       final int screenH = gsm(1);
       const double initH = 360;
       const double initW = 640;
-      const double step = 120;
+      const double step = 150;
       final int idx = args.cascadeIndex;
       final double dpr = ui.window.devicePixelRatio;
       double x = (step * idx).toDouble();
-      double y = screenH / dpr - initH - (step * idx);
-      if (x + initW > screenW / dpr || y < 0) {
+      double y = (step * idx).toDouble();
+      if (x + initW > screenW / dpr || y + initH > screenH / dpr) {
         x = 0;
-        y = screenH / dpr - initH;
+        y = 0;
       }
       await windowManager.setBounds(Rect.fromLTWH(x, y, initW, initH));
 

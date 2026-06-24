@@ -121,6 +121,18 @@ class FollowService extends GetxService {
     await DBService.instance.addFollow(follow);
   }
 
+  // 关注后直接加入内存列表，不重新读数据库
+  void addFollowItem(FollowUser item) {
+    followList.add(item);
+    filterData();
+  }
+
+  // 取关后直接从内存列表删除，不重新读数据库
+  void removeFollowItem(String id) {
+    followList.removeWhere((u) => u.id == id);
+    filterData();
+  }
+
   void initTimer() {
     if (AppSettingsController.instance.autoUpdateFollowEnable.value) {
       updateTimer?.cancel();
@@ -144,11 +156,14 @@ class FollowService extends GetxService {
     if (list.isEmpty) {
       updating.value = false;
       followList.assignAll(list);
+      filterData();
       return;
     }
     followList.assignAll(list);
     if (updateStatus) {
       startUpdateStatus();
+    } else {
+      filterData();
     }
   }
 
