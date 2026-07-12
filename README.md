@@ -15,4 +15,4 @@
 
 ---
 
-⭐ Star this project if you find it useful! 🎉
+⭐ 如果您觉得这个项目有用，请给它星! 🎉
