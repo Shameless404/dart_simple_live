@@ -93,8 +93,8 @@ Future<void> openMiniWindow(FollowUser item,
     Log.logPrint(e);
   }
 
-  var settings = AppSettingsController.instance;
-  var danmuSize = settings.danmuSize.value;
+  var danmuSize = 8.0;
+  var danmuSpeed = 10.0;
   try {
     final cacheFile =
         File('${Directory.systemTemp.path}\\simple_live_mini_danmu.json');
@@ -102,10 +102,13 @@ Future<void> openMiniWindow(FollowUser item,
       final cacheData = jsonDecode(cacheFile.readAsStringSync());
       danmuSize = ((cacheData['danmuSize'] as num?)?.toDouble() ?? danmuSize)
           .clamp(8.0, 48.0);
+      danmuSpeed = ((cacheData['danmuSpeed'] as num?)?.toDouble() ?? danmuSpeed)
+          .clamp(1.0, 20.0);
     }
   } catch (e) {
     debugPrint('MiniPlayer: read cache failed: $e');
   }
+  final settings = AppSettingsController.instance;
   final idx = cascadeIndex >= 0 ? cascadeIndex : MiniPlayerManager.instance.nextIndex();
   var args = MiniPlayerArguments(
     roomId: item.roomId,
@@ -114,7 +117,7 @@ Future<void> openMiniWindow(FollowUser item,
     streamHeaders: streamHeaders,
     bilibiliCookie: bilibiliCookie,
     danmuSize: danmuSize,
-    danmuSpeed: settings.danmuSpeed.value,
+    danmuSpeed: danmuSpeed,
     danmuArea: settings.danmuArea.value,
     danmuOpacity: settings.danmuOpacity.value,
     danmuFontWeight: settings.danmuFontWeight.value,
@@ -124,6 +127,7 @@ Future<void> openMiniWindow(FollowUser item,
     cascadeIndex: idx,
     userName: userName,
     title: title,
+    mainDanmuSize: settings.danmuSize.value,
   );
 
   final env = Map<String, String>.from(Platform.environment);

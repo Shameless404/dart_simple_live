@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -446,9 +447,11 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildMessageArea() {
+    final isBili = controller.site.id == Constant.kBiliBili;
+    final tabCount = isBili ? 4 : 3;
     return Expanded(
       child: DefaultTabController(
-        length: controller.site.id == Constant.kBiliBili ? 4 : 3,
+        length: tabCount,
         child: Column(
           children: [
             TabBar(
@@ -456,10 +459,8 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               labelPadding: EdgeInsets.zero,
               indicatorWeight: 1.0,
               tabs: [
-                const Tab(
-                  text: "聊天",
-                ),
-                if (controller.site.id == Constant.kBiliBili)
+                const Tab(text: "聊天"),
+                if (isBili)
                   Tab(
                     child: Obx(
                       () => Text(
@@ -469,58 +470,22 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                       ),
                     ),
                   ),
-                const Tab(
-                  text: "关注",
-                ),
-                const Tab(
-                  text: "设置",
-                ),
+                const Tab(text: "关注"),
+                const Tab(text: "设置"),
               ],
             ),
             Expanded(
-              child: TabBarView(
-                children: [
-                  Stack(
-                    children: [
-                      Obx(
-                        () => ListView.separated(
-                          controller: controller.scrollController,
-                          separatorBuilder: (_, i) => Obx(
-                            () => SizedBox(
-                              height: AppSettingsController
-                                      .instance.chatTextGap.value *
-                                  2,
-                            ),
-                          ),
-                          padding: AppStyle.edgeInsetsA12,
-                          itemCount: controller.messages.length,
-                          itemBuilder: (ctx, i) {
-                            var item = controller.messages[i];
-                            return buildMessageItem(item, ctx);
-                          },
-                        ),
-                      ),
-                      Positioned(
-                        right: 12,
-                        bottom: 12,
-                        child: Obx(
-                          () => Visibility(
-                            visible: controller.disableAutoScroll.value,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                controller.disableAutoScroll.value = false;
-                                controller.chatScrollToBottom();
-                              },
-                              icon: const Icon(Icons.expand_more),
-                              label: const Text("最新"),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+              child: _TabContent(
+                tabs: [
+                  _ChatTab(
+                    key: ValueKey(
+                      'chat_${controller.site.id}_${controller.roomId}',
+                    ),
+                    stream: controller.chatMessageStream.stream,
+                    statusNotifier: controller.chatStatusNotifier,
+                    buildItem: buildMessageItem,
                   ),
-                  if (controller.site.id == Constant.kBiliBili)
-                    buildSuperChats(),
+                  if (isBili) buildSuperChats(),
                   buildFollowList(),
                   buildSettings(),
                 ],
@@ -1077,6 +1042,174 @@ class _FollowListWithSearchState extends State<_FollowListWithSearch> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Tab 内容切换器（IndexedStack 常驻所有 tab）
+class _TabContent extends StatefulWidget {
+  final List<Widget> tabs;
+  const _TabContent({required this.tabs});
+
+  @override
+  State<_TabContent> createState() => _TabContentState();
+}
+
+class _TabContentState extends State<_TabContent> {
+  TabController? _tc;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final tc = DefaultTabController.of(context);
+    if (tc != _tc) {
+      _tc?.removeListener(_onChanged);
+      _tc = tc;
+      _tc?.addListener(_onChanged);
+    }
+  }
+
+  void _onChanged() => setState(() {});
+
+  @override
+  void dispose() {
+    _tc?.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IndexedStack(index: _tc?.index ?? 0, children: widget.tabs);
+  }
+}
+
+/// 聊天 tab：消息列表 + 流订阅 + 系统消息横幅（常驻，永不自动清理）
+class _ChatTab extends StatefulWidget {
+  final Stream<LiveMessage> stream;
+  final ValueNotifier<String?> statusNotifier;
+  final Widget Function(LiveMessage message, BuildContext context) buildItem;
+
+  const _ChatTab({
+    super.key,
+    required this.stream,
+    required this.statusNotifier,
+    required this.buildItem,
+  });
+
+  @override
+  State<_ChatTab> createState() => _ChatTabState();
+}
+
+class _ChatTabState extends State<_ChatTab> {
+  final List<LiveMessage> _messages = [];
+  final ScrollController _scrollController = ScrollController();
+  bool _disableAutoScroll = false;
+  double _lastScrollPos = 0;
+  StreamSubscription<LiveMessage>? _subscription;
+  VoidCallback? _statusListener;
+  String? _statusMsg;
+  Timer? _statusTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    _subscription = widget.stream.listen(_onMessage);
+    _statusMsg = widget.statusNotifier.value;
+    _statusListener = () {
+      if (mounted) setState(() => _statusMsg = widget.statusNotifier.value);
+      _statusTimer?.cancel();
+      _statusTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _statusMsg = null);
+      });
+    };
+    widget.statusNotifier.addListener(_statusListener!);
+  }
+
+  void _onScroll() {
+    final pos = _scrollController.position.pixels;
+    final maxPos = _scrollController.position.maxScrollExtent;
+    if (pos >= maxPos - 1) {
+      _disableAutoScroll = false;
+    } else if (pos < _lastScrollPos) {
+      _disableAutoScroll = true;
+    }
+    _lastScrollPos = pos;
+    if (mounted) setState(() {});
+  }
+
+  void _onMessage(LiveMessage msg) {
+    if (_messages.length > 200) _messages.removeAt(0);
+    _messages.add(msg);
+    if (mounted) setState(() {});
+    if (!_disableAutoScroll) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _scrollToBottom());
+    }
+  }
+
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    if (_statusListener != null) widget.statusNotifier.removeListener(_statusListener!);
+    _statusTimer?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Column(
+          children: [
+            if (_statusMsg != null)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                color: Colors.blue.withAlpha(25),
+                child: Text(
+                  _statusMsg!,
+                  style: const TextStyle(fontSize: 12, color: Colors.blue),
+                ),
+              ),
+            Expanded(
+              child: ListView.separated(
+                controller: _scrollController,
+                separatorBuilder: (_, i) => SizedBox(
+                  height:
+                      AppSettingsController.instance.chatTextGap.value * 2,
+                ),
+                padding: AppStyle.edgeInsetsA12,
+                itemCount: _messages.length,
+                itemBuilder: (ctx, i) =>
+                    widget.buildItem(_messages[i], ctx),
+              ),
+            ),
+          ],
+        ),
+        if (_disableAutoScroll)
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _disableAutoScroll = false;
+                _scrollToBottom();
+                if (mounted) setState(() {});
+              },
+              icon: const Icon(Icons.expand_more),
+              label: const Text("最新"),
+            ),
+          ),
+      ],
     );
   }
 }

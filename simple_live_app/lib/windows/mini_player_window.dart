@@ -30,6 +30,7 @@ class MiniPlayerArguments {
   final String danmakuJson;
   final int cascadeIndex;
   final String userName;
+  final double? mainDanmuSize;
   final String title;
 
   MiniPlayerArguments({
@@ -49,6 +50,7 @@ class MiniPlayerArguments {
     this.cascadeIndex = 0,
     this.userName = '',
     this.title = '',
+    this.mainDanmuSize,
   });
 
   Map<String, dynamic> toJson() => {
@@ -68,6 +70,7 @@ class MiniPlayerArguments {
         'cascadeIndex': cascadeIndex,
         'userName': userName,
         'title': title,
+        'mainDanmuSize': mainDanmuSize,
       };
 
   factory MiniPlayerArguments.fromJson(Map<String, dynamic> json) =>
@@ -90,6 +93,7 @@ class MiniPlayerArguments {
         cascadeIndex: (json['cascadeIndex'] as int? ?? 0).clamp(0, 999),
         userName: json['userName'] as String? ?? '',
         title: json['title'] as String? ?? '',
+        mainDanmuSize: (json['mainDanmuSize'] as num?)?.toDouble(),
       );
 }
 
@@ -133,17 +137,19 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   LiveDanmaku? liveDanmaku;
   bool _danmakuSecondaryHit = false;
   bool _pendingSecondaryDown = false;
-  bool _danmakuTransitioning = false;
   bool _danmakuUserEnabled = false;
+  bool _danmakuFrozen = false;
   bool? _showControls; // null = hidden, true = shown (null-form)
   bool _isFullscreen = false;
   bool _isPinned = true;
   bool _showMoreMenu = false;
   late double _danmuSize;
   late double _danmuSpeed;
+  double _savedDanmuSize = 8.0;
   double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
   double _lastVolume = 0.5;  // 静音前音量，用于恢复
   bool _hwdec = false;
+  Offset? _dragStart;
   Timer? _cleanupTimer;
   StreamSubscription? _playingSub;
   StreamSubscription? _volumeSub;
@@ -271,7 +277,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       final detail = await site.getRoomDetail(roomId: widget.args.roomId);
       final qualities = await site.getPlayQualites(detail: detail);
       if (qualities.isEmpty) { _logVf('ABORT: no qualities'); return; }
-      final qualityIdx = _hwdec ? 0 : (qualities.length > 1 ? qualities.length - 2 : 0);
+      final qualityIdx = _hwdec ? 0 : qualities.length - 1;
       final playUrl = await site.getPlayUrls(detail: detail, quality: qualities[qualityIdx]);
       _logVf('qualities: ${qualities.length}, picked idx=$qualityIdx ${_hwdec ? "best" : "worst"}');
       if (playUrl.urls.isEmpty) { _logVf('ABORT: no urls'); return; }
@@ -313,6 +319,14 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   Future<void> _toggleFullscreen() async {
     final isFullscreen = await windowManager.isFullScreen();
     _logVf('toggleFullscreen: was=$isFullscreen going=${!isFullscreen}');
+    if (!isFullscreen) {
+      _savedDanmuSize = _danmuSize;
+      _danmuSize = (widget.args.mainDanmuSize ?? _danmuSize).clamp(8.0, 50.0);
+      _applyDanmuOption();
+    } else {
+      _danmuSize = _savedDanmuSize;
+      _applyDanmuOption();
+    }
     await windowManager.setFullScreen(!isFullscreen);
     _isFullscreen = !isFullscreen;
     if (_isFullscreen) {
@@ -333,6 +347,14 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       _showControls = null;
       if (mounted) setState(() {});
     }
+  }
+
+  Future<void> _closeWindow() async {
+    _logVf('closeWindow');
+    await globalMiniPlayer?.dispose();
+    globalMiniPlayer = null;
+    await windowManager.setPreventClose(false);
+    await windowManager.destroy();
   }
 
   Future<void> _openInBrowser() async {
@@ -504,9 +526,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
     setState(() {});
   }
 
-  void _changeDanmuSize(double delta) {
-    _danmuSize = (_danmuSize + delta).clamp(8.0, 50.0);
-    _logVf('danmuSize: delta=$delta value=$_danmuSize');
+  void _applyDanmuOption() {
     danmakuController?.updateOption(DanmakuOption(
       fontSize: _danmuSize,
       duration: _danmuSpeed.toInt(),
@@ -515,21 +535,35 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       fontWeight: widget.args.danmuFontWeight,
       showStroke: widget.args.danmuStrokeWidth > 0,
     ));
+  }
+
+  void _changeDanmuSize(double delta) {
+    _danmuSize = (_danmuSize + delta).clamp(8.0, 50.0);
+    _logVf('danmuSize: delta=$delta value=$_danmuSize');
+    _applyDanmuOption();
+    _saveDanmuCache();
     setState(() {});
   }
 
   void _changeDanmuSpeed(double delta) {
     _danmuSpeed = (_danmuSpeed + delta).clamp(1.0, 20.0);
     _logVf('danmuSpeed: delta=$delta value=$_danmuSpeed');
-    danmakuController?.updateOption(DanmakuOption(
-      fontSize: _danmuSize,
-      duration: _danmuSpeed.toInt(),
-      area: widget.args.danmuArea,
-      opacity: widget.args.danmuOpacity,
-      fontWeight: widget.args.danmuFontWeight,
-      showStroke: widget.args.danmuStrokeWidth > 0,
-    ));
+    _applyDanmuOption();
+    _saveDanmuCache();
     setState(() {});
+  }
+
+  void _saveDanmuCache() {
+    try {
+      final cacheFile =
+          File('${Directory.systemTemp.path}\\simple_live_mini_danmu.json');
+      cacheFile.writeAsStringSync(jsonEncode({
+        'danmuSize': _danmuSize,
+        'danmuSpeed': _danmuSpeed,
+      }));
+    } catch (e) {
+      debugPrint('MiniPlayer: save cache failed: $e');
+    }
   }
 
   @override
@@ -573,6 +607,12 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                   return KeyEventResult.handled;
                 }
               }
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.keyW &&
+                  HardwareKeyboard.instance.isControlPressed) {
+                _closeWindow();
+                return KeyEventResult.handled;
+              }
               return KeyEventResult.ignored;
             },
             child: Stack(
@@ -607,16 +647,20 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                         WidgetsBinding.instance.addPostFrameCallback((__) {
                           final wasHit = _danmakuSecondaryHit;
                           _danmakuSecondaryHit = false;
-                          if (wasHit || _danmakuTransitioning) return;
+                          if (wasHit) return;
                           if (!_danmakuUserEnabled) return;
-                          if (danmakuController?.running == true) {
+                          if (!_danmakuFrozen) {
+                            _danmakuFrozen = true;
                             danmakuController?.pause();
                             liveDanmaku?.stop();
                           } else {
+                            _danmakuFrozen = false;
                             _connectDanmaku();
+                            danmakuController?.clear();
                             danmakuController?.resume();
                           }
                         });
+                        WidgetsBinding.instance.scheduleFrame();
                       },
                       behavior: HitTestBehavior.translucent,
                       child: DanmakuScreen(
@@ -682,7 +726,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                 // "更多"菜单 — null-form, 全屏时由 _toggleFullscreen 关
                 if (_showMoreMenu)
                   Positioned(
-                    top: 0,
+                    top: 36,
                     right: 0,
                     child: GestureDetector(
                       onDoubleTap: () {},
@@ -728,6 +772,27 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
                       ),
                     ),
                     ),
+                Positioned.fill(
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: (e) {
+                      if (e.buttons != 1) return;
+                      if (_showControls == true) {
+                        final h = context.size?.height ?? 0;
+                        if (e.position.dy < 36 || e.position.dy >= h - 48) return;
+                      }
+                      _dragStart = e.position;
+                    },
+                    onPointerMove: (e) {
+                      if (_dragStart == null) return;
+                      if ((e.position - _dragStart!).distance > 10.0) {
+                        _dragStart = null;
+                        windowManager.startDragging();
+                      }
+                    },
+                    onPointerUp: (_) => _dragStart = null,
+                  ),
+                ),
                   ],
                 ),
               ),
@@ -867,13 +932,7 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
       useTranslucent: true,
       hoverColor: Colors.red.withValues(alpha: 0.3),
       pressColor: Colors.red,
-      onTap: () async {
-        _logVf('closeButton: closing mini player');
-        await globalMiniPlayer?.dispose();
-        globalMiniPlayer = null;
-        await windowManager.setPreventClose(false);
-        await windowManager.destroy();
-      },
+      onTap: _closeWindow,
       child: Container(
         width: 44,
         height: 44,

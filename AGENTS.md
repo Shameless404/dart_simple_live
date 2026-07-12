@@ -62,5 +62,15 @@
 
 ## Release
 - 版本永远 `v0.0.1`，ZIP: `simple_live_v0.0.1_windows-x64.zip`
-- 更新：不 build，`D:\simple_live\` 打 ZIP（排除 blocked_users.json）→ curl.exe 换 asset
+- 每次 push 后，`v0.0.1` tag 必须一起移到最新 commit，GitHub 源码 zip/tar.gz 才会更新
+  ```
+  git tag -d v0.0.1
+  git tag v0.0.1
+  git push --force origin v0.0.1
+  ```
+- 部署包更新：不 build，`D:\simple_live\` 打 ZIP（排除 `blocked_users.json`）→ 删旧 asset → 上传新 ZIP
+  ```
+  curl.exe -s -o nul -w "%{http_code}" -X DELETE -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/Shameless404/dart_simple_live/releases/assets/$ASSET_ID"
+  curl.exe -s -o nul -w "%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "Content-Type: application/zip" --data-binary "@ZIP_PATH" "https://uploads.github.com/repos/Shameless404/dart_simple_live/releases/$RELEASE_ID/assets?name=simple_live_v0.0.1_windows-x64.zip"
+  ```
 - Token 在 `git remote -v` URL 中；draft 必须先 publish

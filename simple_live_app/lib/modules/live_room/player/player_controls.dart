@@ -507,8 +507,7 @@ Widget buildControls(
                 ),
                 if (!controller.showDanmakuState.value)
                   IconButton(
-                    onPressed: () => controller.showDanmakuState.value =
-                        !controller.showDanmakuState.value,
+                    onPressed: () => controller.toggleDanmakuFull(),
                     icon: const ImageIcon(
                       AssetImage('assets/icons/icon_danmaku_open.png'),
                       size: 24,
@@ -517,8 +516,7 @@ Widget buildControls(
                   ),
                 if (controller.showDanmakuState.value)
                   IconButton(
-                    onPressed: () => controller.showDanmakuState.value =
-                        !controller.showDanmakuState.value,
+                    onPressed: () => controller.toggleDanmakuFull(),
                     icon: const ImageIcon(
                       AssetImage('assets/icons/icon_danmaku_close.png'),
                       size: 24,

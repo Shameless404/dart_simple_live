@@ -59,12 +59,18 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var liveStatus = false.obs;
   RxList<LiveSuperChatMessage> superChats = RxList<LiveSuperChatMessage>();
 
-  /// 滚动控制
-  final ScrollController scrollController = ScrollController();
   double followListScrollOffset = 0.0;
 
-  /// 聊天信息
-  RxList<LiveMessage> messages = RxList<LiveMessage>();
+  /// 全屏无弹幕 3 秒后断 WS
+  Timer? _fullscreenCleanupTimer;
+  bool _fullscreenDisconnected = false;
+
+  /// 聊天消息流（聊天 tab 自行订阅，切走销毁即取消订阅）
+  final StreamController<LiveMessage> chatMessageStream =
+      StreamController<LiveMessage>.broadcast();
+
+  /// 系统消息状态（断线/重连等，聊天栏顶部横幅显示）
+  final ValueNotifier<String?> chatStatusNotifier = ValueNotifier(null);
 
   /// 清晰度数据
   RxList<LivePlayQuality> qualites = RxList<LivePlayQuality>();
@@ -96,10 +102,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 是否启用自动关闭
   var autoExitEnable = false.obs;
 
-  /// 是否禁用自动滚动聊天栏
-  /// - 当用户向上滚动聊天栏时，不再自动滚动
-  var disableAutoScroll = false.obs;
-
   /// 是否处于后台
   var isBackground = false;
 
@@ -121,8 +123,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     followed.value = DBService.instance.getFollowExist("${site.id}_$roomId");
     loadData();
 
-    scrollController.addListener(scrollListener);
-
     WidgetsBinding.instance.addPostFrameCallback((_) => _applyDanmakuScale());
 
     ever(AppSettingsController.instance.danmuSize, (_) => _applyDanmakuScale());
@@ -131,13 +131,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     ever(AppSettingsController.instance.danmuOpacity, (_) => _applyDanmakuScale());
     ever(AppSettingsController.instance.danmuFontWeight, (_) => _applyDanmakuScale());
     super.onInit();
-  }
-
-  void scrollListener() {
-    if (scrollController.position.userScrollDirection ==
-        ScrollDirection.forward) {
-      disableAutoScroll.value = true;
-    }
   }
 
   @override
@@ -215,51 +208,80 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     loadData();
   }
 
-  /// 聊天栏始终滚动到底部
-  void chatScrollToBottom() {
-    if (scrollController.hasClients) {
-      // 如果手动上拉过，就不自动滚动到底部
-      if (disableAutoScroll.value) {
-        return;
-      }
-      scrollController.jumpTo(scrollController.position.maxScrollExtent);
-    }
-  }
-
   /// 初始化弹幕接收事件
   void initDanmau() {
-    liveDanmaku.onMessage = onWSMessage;
+    liveDanmaku.onMessage = (msg) {
+      onWSMessage(msg);
+      if (!isClosed && msg.type == LiveMessageType.chat) {
+        chatMessageStream.add(msg);
+      }
+    };
     liveDanmaku.onClose = onWSClose;
     liveDanmaku.onReady = onWSReady;
   }
 
   /// 断开并重新连接弹幕（用于右键空白恢复）
-  void reconnectDanmaku() {
-    liveDanmaku.stop();
-    liveDanmaku = site.liveSite.getDanmaku();
-    initDanmau();
-    liveDanmaku.start(detail.value?.danmakuData);
+  Future<void> reconnectDanmaku() async {
+    try {
+      liveDanmaku.stop();
+      liveDanmaku = site.liveSite.getDanmaku();
+      initDanmau();
+      await liveDanmaku.start(detail.value?.danmakuData);
+    } catch (e) {
+      Log.logPrint(e);
+    }
   }
 
-  /// 弹幕开关：真断开 + 真隐藏 / 重连 + 显示
+  void _scheduleFullscreenCleanup() {
+    _fullscreenCleanupTimer?.cancel();
+    _fullscreenCleanupTimer = Timer(const Duration(seconds: 3), () {
+      liveDanmaku.stop();
+      danmakuController?.clear();
+      _fullscreenDisconnected = true;
+      chatStatusNotifier.value = "全屏无弹幕，已断开连接";
+    });
+  }
+
+  void _cancelFullscreenCleanup() {
+    _fullscreenCleanupTimer?.cancel();
+    _fullscreenCleanupTimer = null;
+  }
+
+  @override
+  void enterFullScreen() {
+    if (!showDanmakuState.value) _scheduleFullscreenCleanup();
+    super.enterFullScreen();
+  }
+
+  @override
+  void exitFull() {
+    _cancelFullscreenCleanup();
+    if (_fullscreenDisconnected) {
+      reconnectDanmaku();
+      _fullscreenDisconnected = false;
+    }
+    super.exitFull();
+  }
+
+  /// 弹幕开关
   void toggleDanmakuFull() {
     if (showDanmakuState.value) {
       showDanmakuState.value = false;
-      liveDanmaku.stop();
       danmakuController?.clear();
+      if (fullScreenState.value) _scheduleFullscreenCleanup();
     } else {
-      reconnectDanmaku();
+      _cancelFullscreenCleanup();
       showDanmakuState.value = true;
+      if (_fullscreenDisconnected) {
+        reconnectDanmaku();
+        _fullscreenDisconnected = false;
+      }
     }
   }
 
   /// 接收到WebSocket信息
   void onWSMessage(LiveMessage msg) {
     if (msg.type == LiveMessageType.chat) {
-      if (messages.length > 200 && !disableAutoScroll.value) {
-        messages.removeAt(0);
-      }
-
       // 拉黑用户检查
       if (BlockedUsersService.instance.isBlocked(site.id, msg.userName)) {
         return;
@@ -273,7 +295,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
           try {
             pattern = RegExp(removedSlash);
           } catch (e) {
-            // should avoid this during add keyword
             Log.d("关键词：$keyword 正则格式错误");
           }
         } else {
@@ -285,11 +306,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         }
       }
 
-      messages.add(msg);
-
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => chatScrollToBottom(),
-      );
       if (!liveStatus.value || isBackground) {
         return;
       }
@@ -313,26 +329,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
   }
 
-  /// 添加一条系统消息
-  void addSysMsg(String msg) {
-    messages.add(
-      LiveMessage(
-        type: LiveMessageType.chat,
-        userName: "LiveSysMessage",
-        message: msg,
-        color: LiveMessageColor.white,
-      ),
-    );
-  }
-
   /// 接收到WebSocket关闭信息
   void onWSClose(String msg) {
-    addSysMsg(msg);
+    if (!isClosed) chatStatusNotifier.value = "断线重连中...";
   }
 
   /// WebSocket准备就绪
   void onWSReady() {
-    addSysMsg("弹幕服务器连接正常");
+    if (!isClosed) chatStatusNotifier.value = "弹幕服务器连接正常";
   }
 
   /// 加载直播间信息
@@ -342,7 +346,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       loadError.value = false;
       error = null;
       update();
-      addSysMsg("正在读取直播间信息");
+      SmartDialog.showToast("正在读取直播间信息");
       detail.value = await site.liveSite.getRoomDetail(roomId: roomId);
       windowManager.setTitle("${detail.value!.userName} - ${detail.value!.title}");
 
@@ -384,9 +388,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         getPlayQualites();
       }
       if (detail.value!.isRecord) {
-        addSysMsg("当前主播未开播，正在轮播录像");
+        Log.logPrint("status set: 轮播");
+        chatStatusNotifier.value = "当前主播未开播，正在轮播录像";
       }
-      addSysMsg("开始连接弹幕服务器");
+      Log.logPrint("status set: 开始连接");
+      chatStatusNotifier.value = "开始连接弹幕服务器";
       initDanmau();
       liveDanmaku.start(detail.value?.danmakuData);
       startLiveDurationTimer(); // 启动开播时长定时器
@@ -561,7 +567,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       superChats.addAll(sc);
     } catch (e) {
       Log.logPrint(e);
-      addSysMsg("SC读取失败");
+      SmartDialog.showToast("SC读取失败");
     }
   }
 
@@ -992,7 +998,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     // 清除全部消息
     liveDanmaku.stop();
-    messages.clear();
     superChats.clear();
     danmakuController?.clear();
 
@@ -1068,8 +1073,10 @@ ${error?.stackTrace}''');
   void onClose() {
     WidgetsBinding.instance.removeObserver(this);
     _resizeDebounce?.cancel();
-    scrollController.removeListener(scrollListener);
     autoExitTimer?.cancel();
+    _fullscreenCleanupTimer?.cancel();
+    chatMessageStream.close();
+    chatStatusNotifier.dispose();
 
     liveDanmaku.stop();
     danmakuController = null;
