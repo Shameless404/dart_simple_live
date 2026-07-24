@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:floating/floating.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';
@@ -1142,9 +1144,20 @@ class _ChatTab extends StatefulWidget {
 }
 
 class _ChatTabState extends State<_ChatTab> {
+  static void _log(String msg) {
+    try {
+      final f = File(r'D:\simple_live\debug.log');
+      f.writeAsStringSync('${DateTime.now().toString().substring(11, 19)}.${
+          DateTime.now().millisecond.toString().padLeft(3, '0')} $msg\r\n',
+          mode: FileMode.append);
+    } catch (_) {}
+  }
+
+  bool _showBtn = false;
+  bool _paused = false;
   final List<LiveMessage> _messages = [];
+  final ListQueue<LiveMessage> _pendingBuffer = ListQueue();
   final ScrollController _scrollController = ScrollController();
-  bool _disableAutoScroll = false;
   StreamSubscription<LiveMessage>? _subscription;
   VoidCallback? _statusListener;
   String? _statusMsg;
@@ -1153,9 +1166,10 @@ class _ChatTabState extends State<_ChatTab> {
   @override
   void initState() {
     super.initState();
+    _log('=== CHAT REVERSE INIT ===');
     _scrollController.addListener(_onScroll);
     if (widget.initialMessages.isNotEmpty) {
-      _messages.addAll(widget.initialMessages);
+      _messages.addAll(widget.initialMessages.reversed);
     }
     _subscription = widget.stream.listen(_onMessage);
     _statusMsg = widget.statusNotifier.value;
@@ -1170,31 +1184,53 @@ class _ChatTabState extends State<_ChatTab> {
   }
 
   void _onScroll() {
+    if (!_scrollController.hasClients) return;
     final pos = _scrollController.position.pixels;
-    final maxPos = _scrollController.position.maxScrollExtent;
-    _disableAutoScroll = pos < maxPos - 1;
+
+    if (pos > 50) {
+      if (!_paused) {
+        _paused = true;
+        _log('paused pos=$pos');
+      }
+    } else if (_paused) {
+      _paused = false;
+      _flushBuffer();
+    }
+
+    final shouldShow = pos > 50;
+    if (shouldShow != _showBtn) {
+      _showBtn = shouldShow;
+      _log('_showBtn=$_showBtn pos=$pos');
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _flushBuffer() {
+    if (_pendingBuffer.isEmpty) return;
+    _log('flush count=${_pendingBuffer.length}');
+    _messages.insertAll(0, _pendingBuffer.toList().reversed);
+    _pendingBuffer.clear();
+    while (_messages.length > 50) _messages.removeLast();
     if (mounted) setState(() {});
   }
 
   void _onMessage(LiveMessage msg) {
-    if (_messages.length > 200) _messages.removeAt(0);
-    _messages.add(msg);
-    if (mounted) setState(() {});
-    if (!_disableAutoScroll) {
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _scrollToBottom());
+    if (_paused) {
+      _pendingBuffer.addLast(msg);
+      if (_pendingBuffer.length > 50) _pendingBuffer.removeFirst();
+      return;
     }
-  }
-
-  void _scrollToBottom() {
-    if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    if (_messages.length > 50) _messages.removeLast();
+    _messages.insert(0, msg);
+    _log('onMessage count=${_messages.length}');
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
-    if (_statusListener != null) widget.statusNotifier.removeListener(_statusListener!);
+    if (_statusListener != null)
+      widget.statusNotifier.removeListener(_statusListener!);
     _statusTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
@@ -1210,20 +1246,23 @@ class _ChatTabState extends State<_ChatTab> {
             if (_statusMsg != null)
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 4),
                 color: Colors.blue.withAlpha(25),
                 child: Text(
                   _statusMsg!,
-                  style: const TextStyle(fontSize: 12, color: Colors.blue),
+                  style: const TextStyle(
+                      fontSize: 12, color: Colors.blue),
                 ),
               ),
             Expanded(
               child: ListView.separated(
+                reverse: true,
                 controller: _scrollController,
                 separatorBuilder: (_, i) => SizedBox(
-                  height:
-                      AppSettingsController.instance.chatTextGap.value * 2,
+                  height: AppSettingsController
+                          .instance.chatTextGap.value *
+                      2,
                 ),
                 padding: AppStyle.edgeInsetsA12,
                 itemCount: _messages.length,
@@ -1233,14 +1272,16 @@ class _ChatTabState extends State<_ChatTab> {
             ),
           ],
         ),
-        if (_disableAutoScroll)
+        if (_showBtn)
           Positioned(
             right: 12,
             bottom: 12,
             child: ElevatedButton.icon(
               onPressed: () {
-                _disableAutoScroll = false;
-                _scrollToBottom();
+                _log('BTN clicked');
+                _paused = false;
+                _flushBuffer();
+                _scrollController.jumpTo(0);
                 if (mounted) setState(() {});
               },
               icon: const Icon(Icons.expand_more),
