@@ -61,13 +61,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   double followListScrollOffset = 0.0;
 
-  /// 全屏无弹幕 3 秒后断 WS
-  Timer? _fullscreenCleanupTimer;
-  bool _fullscreenDisconnected = false;
+
 
   /// 聊天消息流（聊天 tab 自行订阅，切走销毁即取消订阅）
   final StreamController<LiveMessage> chatMessageStream =
       StreamController<LiveMessage>.broadcast();
+  final List<LiveMessage> _chatBuffer = [];
+  static const int _maxChatMessages = 200;
+  List<LiveMessage> get chatHistory => List.unmodifiable(_chatBuffer);
 
   /// 系统消息状态（断线/重连等，聊天栏顶部横幅显示）
   final ValueNotifier<String?> chatStatusNotifier = ValueNotifier(null);
@@ -212,7 +213,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void initDanmau() {
     liveDanmaku.onMessage = (msg) {
       onWSMessage(msg);
-      if (!isClosed && msg.type == LiveMessageType.chat) {
+      if (!isClosed &&
+          msg.type == LiveMessageType.chat &&
+          !BlockedUsersService.instance.isBlocked(site.id, msg.userName)) {
+        _chatBuffer.add(msg);
+        if (_chatBuffer.length > _maxChatMessages) _chatBuffer.removeAt(0);
         chatMessageStream.add(msg);
       }
     };
@@ -232,50 +237,15 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
   }
 
-  void _scheduleFullscreenCleanup() {
-    _fullscreenCleanupTimer?.cancel();
-    _fullscreenCleanupTimer = Timer(const Duration(seconds: 3), () {
-      liveDanmaku.stop();
-      danmakuController?.clear();
-      _fullscreenDisconnected = true;
-      chatStatusNotifier.value = "全屏无弹幕，已断开连接";
-    });
-  }
 
-  void _cancelFullscreenCleanup() {
-    _fullscreenCleanupTimer?.cancel();
-    _fullscreenCleanupTimer = null;
-  }
-
-  @override
-  void enterFullScreen() {
-    if (!showDanmakuState.value) _scheduleFullscreenCleanup();
-    super.enterFullScreen();
-  }
-
-  @override
-  void exitFull() {
-    _cancelFullscreenCleanup();
-    if (_fullscreenDisconnected) {
-      reconnectDanmaku();
-      _fullscreenDisconnected = false;
-    }
-    super.exitFull();
-  }
 
   /// 弹幕开关
   void toggleDanmakuFull() {
     if (showDanmakuState.value) {
       showDanmakuState.value = false;
       danmakuController?.clear();
-      if (fullScreenState.value) _scheduleFullscreenCleanup();
     } else {
-      _cancelFullscreenCleanup();
       showDanmakuState.value = true;
-      if (_fullscreenDisconnected) {
-        reconnectDanmaku();
-        _fullscreenDisconnected = false;
-      }
     }
   }
 
@@ -1074,7 +1044,6 @@ ${error?.stackTrace}''');
     WidgetsBinding.instance.removeObserver(this);
     _resizeDebounce?.cancel();
     autoExitTimer?.cancel();
-    _fullscreenCleanupTimer?.cancel();
     chatMessageStream.close();
     chatStatusNotifier.dispose();
 

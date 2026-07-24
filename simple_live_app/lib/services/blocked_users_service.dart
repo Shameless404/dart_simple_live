@@ -46,6 +46,8 @@ class BlockedUsersService {
 
   Map<String, BlockedUserEntry> _entries = {};
   File? _file;
+  DateTime? _lastCheckTime;
+  DateTime? _lastFileModified;
 
   String get _filePath {
     final exePath = Platform.resolvedExecutable;
@@ -66,12 +68,14 @@ class BlockedUsersService {
     try {
       if (_file == null || !_file!.existsSync()) {
         _entries = {};
+        _lastFileModified = null;
         return;
       }
       final bytes = _file!.readAsBytesSync();
       final raw = utf8.decode(bytes, allowMalformed: true).trim();
       if (raw.isEmpty) {
         _entries = {};
+        _lastFileModified = _file!.lastModifiedSync();
         return;
       }
       _entries = {};
@@ -84,6 +88,7 @@ class BlockedUsersService {
           _entries[entry.key] = entry;
         } catch (_) {}
       }
+      _lastFileModified = _file!.lastModifiedSync();
     } catch (_) {
       _entries = {};
     }
@@ -96,11 +101,27 @@ class BlockedUsersService {
     } catch (_) {}
   }
 
+  void _syncIfNeeded() {
+    final now = DateTime.now();
+    if (_lastCheckTime != null &&
+        now.difference(_lastCheckTime!).inSeconds < 10) {
+      return;
+    }
+    _lastCheckTime = now;
+    try {
+      if (_file == null || !_file!.existsSync()) return;
+      final modified = _file!.lastModifiedSync();
+      if (_lastFileModified != null && modified == _lastFileModified!) return;
+      _load();
+    } catch (_) {}
+  }
+
   bool isBlocked(String platform, String userName) {
+    _syncIfNeeded();
     return _entries.containsKey('$platform:$userName');
   }
 
-  void block(String platform, String userName, String message, {String anchorName = ''}) {
+  BlockedUserEntry block(String platform, String userName, String message, {String anchorName = ''}) {
     final entry = BlockedUserEntry(
       userName: userName,
       anchorName: anchorName,
@@ -117,6 +138,7 @@ class BlockedUsersService {
             mode: FileMode.append);
       }
     } catch (_) {}
+    return entry;
   }
 
   void unblock(String platform, String userName) {

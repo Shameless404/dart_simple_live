@@ -406,11 +406,8 @@ class AppSettingsController extends GetxController {
   }
 
   void blockUser(String platform, String userName, String message, {String anchorName = ''}) {
-    BlockedUsersService.instance.block(platform, userName, message, anchorName: anchorName);
-    final e = BlockedUsersService.instance.entries.firstWhere(
-      (e) => e.key == '$platform:$userName',
-    );
-    blockedUsers[e.key] = e;
+    final entry = BlockedUsersService.instance.block(platform, userName, message, anchorName: anchorName);
+    blockedUsers[entry.key] = entry;
   }
 
   void unblockUser(String platform, String userName) {

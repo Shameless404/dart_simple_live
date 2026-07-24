@@ -484,6 +484,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     stream: controller.chatMessageStream.stream,
                     statusNotifier: controller.chatStatusNotifier,
                     buildItem: buildMessageItem,
+                    initialMessages: controller.chatHistory,
                   ),
                   if (isBili) buildSuperChats(),
                   buildFollowList(),
@@ -495,6 +496,13 @@ class LiveRoomPage extends GetView<LiveRoomController> {
         ),
       ),
     );
+  }
+
+  Color _usernameColor(LiveMessage msg) {
+    if (msg.color.r >= 240 && msg.color.g >= 240 && msg.color.b >= 240) {
+      return Get.isDarkMode ? const Color(0xFFBBBBBB) : Colors.grey;
+    }
+    return Color.fromARGB(255, msg.color.r, msg.color.g, msg.color.b);
   }
 
   Widget buildMessageItem(LiveMessage message, BuildContext context) {
@@ -509,6 +517,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
         ),
       );
     }
+
+    final danmakuColor = _usernameColor(message);
+    final fontSize = AppSettingsController.instance.chatTextSize.value;
 
     return GestureDetector(
       onSecondaryTapDown: (details) {
@@ -540,8 +551,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 Flexible(
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.blueGrey.withAlpha(25),
-                      //borderRadius: AppStyle.radius8,
+                      color: Colors.blueGrey.withAlpha(60),
                       borderRadius: const BorderRadius.only(
                         topRight: Radius.circular(12),
                         bottomLeft: Radius.circular(12),
@@ -550,46 +560,75 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     ),
                     padding:
                         AppStyle.edgeInsetsA4.copyWith(left: 12, right: 12),
-                    child: Text.rich(
-                      TextSpan(
-                        text: "${message.userName}：",
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontSize:
-                              AppSettingsController.instance.chatTextSize.value,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: message.message,
-                            style: TextStyle(
-                              color: Get.isDarkMode
-                                  ? Colors.white
-                                  : AppColors.black333,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Tooltip(
+                          message: message.userName,
+                          child: SizedBox(
+                            width: fontSize * 2.0,
+                            child: Text(
+                              message.userName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: fontSize - 2,
+                                color: Colors.grey,
+                              ),
                             ),
-                          )
-                        ],
-                      ),
+                          ),
+                        ),
+                        Text(
+                          "：  ",
+                          style: TextStyle(
+                            fontSize: fontSize - 2,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            message.message,
+                            style: TextStyle(fontSize: fontSize, color: danmakuColor),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ],
             )
-          : Text.rich(
-              TextSpan(
-                text: "${message.userName}：",
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: AppSettingsController.instance.chatTextSize.value,
-                ),
-                children: [
-                  TextSpan(
-                    text: message.message,
-                    style: TextStyle(
-                      color: Get.isDarkMode ? Colors.white : AppColors.black333,
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Tooltip(
+                  message: message.userName,
+                  child: SizedBox(
+                    width: fontSize * 2.0,
+                    child: Text(
+                      message.userName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: fontSize - 2,
+                        color: Colors.grey,
+                      ),
                     ),
-                  )
-                ],
-              ),
+                  ),
+                ),
+                Text(
+                  "：  ",
+                  style: TextStyle(
+                    fontSize: fontSize - 2,
+                    color: Colors.grey,
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    message.message,
+                    style: TextStyle(fontSize: fontSize, color: danmakuColor),
+                  ),
+                ),
+              ],
             ),
           ),
     );
@@ -1088,12 +1127,14 @@ class _ChatTab extends StatefulWidget {
   final Stream<LiveMessage> stream;
   final ValueNotifier<String?> statusNotifier;
   final Widget Function(LiveMessage message, BuildContext context) buildItem;
+  final List<LiveMessage> initialMessages;
 
   const _ChatTab({
     super.key,
     required this.stream,
     required this.statusNotifier,
     required this.buildItem,
+    this.initialMessages = const [],
   });
 
   @override
@@ -1104,7 +1145,6 @@ class _ChatTabState extends State<_ChatTab> {
   final List<LiveMessage> _messages = [];
   final ScrollController _scrollController = ScrollController();
   bool _disableAutoScroll = false;
-  double _lastScrollPos = 0;
   StreamSubscription<LiveMessage>? _subscription;
   VoidCallback? _statusListener;
   String? _statusMsg;
@@ -1114,6 +1154,9 @@ class _ChatTabState extends State<_ChatTab> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    if (widget.initialMessages.isNotEmpty) {
+      _messages.addAll(widget.initialMessages);
+    }
     _subscription = widget.stream.listen(_onMessage);
     _statusMsg = widget.statusNotifier.value;
     _statusListener = () {
@@ -1129,12 +1172,7 @@ class _ChatTabState extends State<_ChatTab> {
   void _onScroll() {
     final pos = _scrollController.position.pixels;
     final maxPos = _scrollController.position.maxScrollExtent;
-    if (pos >= maxPos - 1) {
-      _disableAutoScroll = false;
-    } else if (pos < _lastScrollPos) {
-      _disableAutoScroll = true;
-    }
-    _lastScrollPos = pos;
+    _disableAutoScroll = pos < maxPos - 1;
     if (mounted) setState(() {});
   }
 

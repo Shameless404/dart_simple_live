@@ -68,9 +68,33 @@
   git tag v0.0.1
   git push --force origin v0.0.1
   ```
-- 部署包更新：不 build，`D:\simple_live\` 打 ZIP（排除 `blocked_users.json`）→ 删旧 asset → 上传新 ZIP
+- 部署包完整流程（不 build，`D:\simple_live\` 已是最新）：
+  1. 打 ZIP（排除 `blocked_users.json`）
+  2. 删旧 release（保留 tag）→ 建新 release（发布时间 = today）
+  3. 上传新 ZIP
   ```
-  curl.exe -s -o nul -w "%{http_code}" -X DELETE -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/Shameless404/dart_simple_live/releases/assets/$ASSET_ID"
-  curl.exe -s -o nul -w "%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" -H "Content-Type: application/zip" --data-binary "@ZIP_PATH" "https://uploads.github.com/repos/Shameless404/dart_simple_live/releases/$RELEASE_ID/assets?name=simple_live_v0.0.1_windows-x64.zip"
+  :: 1. ZIP
+  Add-Type -Assembly "System.IO.Compression.FileSystem"
+  $tmp = "$env:TEMP\simple_live_zip"
+  if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+  New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+  Copy-Item -Recurse "D:\simple_live\*" $tmp -Exclude "blocked_users.json"
+  $zipPath = "$env:TEMP\simple_live_v0.0.1_windows-x64.zip"
+  [System.IO.Compression.ZipFile]::CreateFromDirectory($tmp, $zipPath)
+  Remove-Item -Recurse -Force $tmp
+
+  :: 2. 删旧 release → 建新 release
+  $token = "YOUR_TOKEN"
+  $oldRelease = curl.exe -s -H "Authorization: Bearer $token" "https://api.github.com/repos/Shameless404/dart_simple_live/releases/tags/v0.0.1"
+  $oldId = ($oldRelease | ConvertFrom-Json).id
+  curl.exe -s -X DELETE -H "Authorization: Bearer $token" "https://api.github.com/repos/Shameless404/dart_simple_live/releases/$oldId"
+  $newRelease = curl.exe -s -X POST -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{"tag_name":"v0.0.1","name":"v0.0.1","draft":false,"prerelease":false}' "https://api.github.com/repos/Shameless404/dart_simple_live/releases"
+  $newId = ($newRelease | ConvertFrom-Json).id
+
+  :: 3. 上传 ZIP
+  curl.exe -s -X POST -H "Authorization: Bearer $token" -H "Content-Type: application/zip" --data-binary "@$zipPath" "https://uploads.github.com/repos/Shameless404/dart_simple_live/releases/$newId/assets?name=simple_live_v0.0.1_windows-x64.zip"
+
+  :: 4. 清理
+  Remove-Item $zipPath
   ```
-- Token 在 `git remote -v` URL 中；draft 必须先 publish
+- Token 在 `git remote -v` URL 中
