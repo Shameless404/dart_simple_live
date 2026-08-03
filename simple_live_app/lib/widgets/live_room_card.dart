@@ -3,7 +3,10 @@ import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/routes/app_navigation.dart';
+import 'package:simple_live_app/services/mini_player_launcher.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/widgets/net_image.dart';
 import 'package:simple_live_app/widgets/shadow_card.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -15,11 +18,24 @@ class LiveRoomCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ShadowCard(
-      onTap: () {
-        AppNavigator.toLiveRoomDetail(site: site, roomId: item.roomId);
-      },
-      child: Column(
+    return GestureDetector(
+      onSecondaryTap: () => openMiniWindow(
+        FollowUser(
+          id: '${site.id}_${item.roomId}',
+          roomId: item.roomId,
+          siteId: site.id,
+          userName: item.userName,
+          face: item.cover,
+          addTime: DateTime.now(),
+        ),
+        cascadeIndex: MiniPlayerManager.instance.nextIndex(),
+        skipConfirm: true,
+      ),
+      child: ShadowCard(
+        onTap: () {
+          AppNavigator.toLiveRoomDetail(site: site, roomId: item.roomId);
+        },
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Stack(
@@ -95,6 +111,7 @@ class LiveRoomCard extends StatelessWidget {
             ),
           )
         ],
+        ),
       ),
     );
   }

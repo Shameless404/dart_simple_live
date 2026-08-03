@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:floating/floating.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';
@@ -502,7 +501,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
 
   Color _usernameColor(LiveMessage msg) {
     if (msg.color.r >= 240 && msg.color.g >= 240 && msg.color.b >= 240) {
-      return Get.isDarkMode ? const Color(0xFFBBBBBB) : Colors.grey;
+      return Colors.white;
     }
     return Color.fromARGB(255, msg.color.r, msg.color.g, msg.color.b);
   }
@@ -513,7 +512,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
         () => Text(
           message.message,
           style: TextStyle(
-            color: Colors.grey,
+            color: Colors.white,
             fontSize: AppSettingsController.instance.chatTextSize.value,
           ),
         ),
@@ -522,6 +521,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
 
     final danmakuColor = _usernameColor(message);
     final fontSize = AppSettingsController.instance.chatTextSize.value;
+    final usernameFontSize = (fontSize - 4).clamp(10.0, 32.0);
+    final displayName = message.userName.characters.length > 2
+        ? '${message.userName.characters.take(2).join()}...'
+        : message.userName;
 
     return GestureDetector(
       onSecondaryTapDown: (details) {
@@ -563,34 +566,29 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     padding:
                         AppStyle.edgeInsetsA4.copyWith(left: 12, right: 12),
                     child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Tooltip(
-                          message: message.userName,
-                          child: SizedBox(
-                            width: fontSize * 2.0,
-                            child: Text(
-                              message.userName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: fontSize - 2,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                        ),
-                        Text(
-                          "：  ",
-                          style: TextStyle(
-                            fontSize: fontSize - 2,
-                            color: Colors.grey,
-                          ),
-                        ),
                         Expanded(
                           child: Text(
                             message.message,
                             style: TextStyle(fontSize: fontSize, color: danmakuColor),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Tooltip(
+                          message: message.userName,
+                          child: SizedBox(
+                            width: fontSize * 3.0,
+                            child: Text(
+                              displayName,
+                              textAlign: TextAlign.right,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: usernameFontSize,
+                                color: Colors.grey[800],
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -600,40 +598,35 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               ],
             )
           : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Tooltip(
-                  message: message.userName,
-                  child: SizedBox(
-                    width: fontSize * 2.0,
-                    child: Text(
-                      message.userName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: fontSize - 2,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ),
-                ),
-                Text(
-                  "：  ",
-                  style: TextStyle(
-                    fontSize: fontSize - 2,
-                    color: Colors.grey,
-                  ),
-                ),
                 Expanded(
                   child: Text(
                     message.message,
                     style: TextStyle(fontSize: fontSize, color: danmakuColor),
                   ),
                 ),
+                const SizedBox(width: 16),
+                Tooltip(
+                  message: message.userName,
+                  child: SizedBox(
+                    width: fontSize * 3.0,
+                    child: Text(
+                      displayName,
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: usernameFontSize,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-    );
+        );
   }
 
   Widget buildSuperChats() {
@@ -1144,15 +1137,6 @@ class _ChatTab extends StatefulWidget {
 }
 
 class _ChatTabState extends State<_ChatTab> {
-  static void _log(String msg) {
-    try {
-      final f = File(r'D:\simple_live\debug.log');
-      f.writeAsStringSync('${DateTime.now().toString().substring(11, 19)}.${
-          DateTime.now().millisecond.toString().padLeft(3, '0')} $msg\r\n',
-          mode: FileMode.append);
-    } catch (_) {}
-  }
-
   bool _showBtn = false;
   bool _paused = false;
   final List<LiveMessage> _messages = [];
@@ -1166,7 +1150,6 @@ class _ChatTabState extends State<_ChatTab> {
   @override
   void initState() {
     super.initState();
-    _log('=== CHAT REVERSE INIT ===');
     _scrollController.addListener(_onScroll);
     if (widget.initialMessages.isNotEmpty) {
       _messages.addAll(widget.initialMessages.reversed);
@@ -1190,7 +1173,6 @@ class _ChatTabState extends State<_ChatTab> {
     if (pos > 50) {
       if (!_paused) {
         _paused = true;
-        _log('paused pos=$pos');
       }
     } else if (_paused) {
       _paused = false;
@@ -1200,14 +1182,12 @@ class _ChatTabState extends State<_ChatTab> {
     final shouldShow = pos > 50;
     if (shouldShow != _showBtn) {
       _showBtn = shouldShow;
-      _log('_showBtn=$_showBtn pos=$pos');
       if (mounted) setState(() {});
     }
   }
 
   void _flushBuffer() {
     if (_pendingBuffer.isEmpty) return;
-    _log('flush count=${_pendingBuffer.length}');
     _messages.insertAll(0, _pendingBuffer.toList().reversed);
     _pendingBuffer.clear();
     while (_messages.length > 50) _messages.removeLast();
@@ -1222,15 +1202,13 @@ class _ChatTabState extends State<_ChatTab> {
     }
     if (_messages.length > 50) _messages.removeLast();
     _messages.insert(0, msg);
-    _log('onMessage count=${_messages.length}');
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
-    if (_statusListener != null)
-      widget.statusNotifier.removeListener(_statusListener!);
+    if (_statusListener != null) widget.statusNotifier.removeListener(_statusListener!);
     _statusTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
@@ -1278,7 +1256,6 @@ class _ChatTabState extends State<_ChatTab> {
             bottom: 12,
             child: ElevatedButton.icon(
               onPressed: () {
-                _log('BTN clicked');
                 _paused = false;
                 _flushBuffer();
                 _scrollController.jumpTo(0);

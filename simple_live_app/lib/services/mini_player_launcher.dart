@@ -93,8 +93,9 @@ Future<void> openMiniWindow(FollowUser item,
     Log.logPrint(e);
   }
 
-  var danmuSize = 8.0;
-  var danmuSpeed = 10.0;
+  final settings = AppSettingsController.instance;
+  var danmuSize = settings.danmuSize.value;
+  var danmuSpeed = settings.danmuSpeed.value;
   try {
     final cacheFile =
         File('${Directory.systemTemp.path}\\simple_live_mini_danmu.json');
@@ -108,7 +109,6 @@ Future<void> openMiniWindow(FollowUser item,
   } catch (e) {
     debugPrint('MiniPlayer: read cache failed: $e');
   }
-  final settings = AppSettingsController.instance;
   final idx = cascadeIndex >= 0 ? cascadeIndex : MiniPlayerManager.instance.nextIndex();
   var args = MiniPlayerArguments(
     roomId: item.roomId,

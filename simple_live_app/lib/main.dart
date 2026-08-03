@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' hide Size;
 import 'dart:io';
+import 'dart:math';
 import 'package:ffi/ffi.dart';
 import 'dart:ui' as ui;
 
@@ -69,15 +70,11 @@ void main() async {
       final int screenH = gsm(1);
       const double initH = 360;
       const double initW = 640;
-      const double step = 150;
-      final int idx = args.cascadeIndex;
       final double dpr = ui.window.devicePixelRatio;
-      double x = (step * idx).toDouble();
-      double y = (step * idx).toDouble();
-      if (x + initW > screenW / dpr || y + initH > screenH / dpr) {
-        x = 0;
-        y = 0;
-      }
+      final maxX = (screenW / dpr - initW).toInt().clamp(0, 9999);
+      final maxY = (screenH / dpr - initH).toInt().clamp(0, 9999);
+      final x = Random().nextInt(maxX + 1).toDouble();
+      final y = Random().nextInt(maxY + 1).toDouble();
       await windowManager.setBounds(Rect.fromLTWH(x, y, initW, initH));
 
       // Remove OS title bar BEFORE runApp — C++ runner created the window before main()

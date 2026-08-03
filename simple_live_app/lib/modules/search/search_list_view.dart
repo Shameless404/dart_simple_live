@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/app_style.dart';
+import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/modules/search/search_list_controller.dart';
 import 'package:simple_live_app/routes/app_navigation.dart';
+import 'package:simple_live_app/services/mini_player_launcher.dart';
+import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/widgets/keep_alive_wrapper.dart';
 import 'package:simple_live_app/widgets/live_room_card.dart';
 import 'package:simple_live_app/widgets/net_image.dart';
@@ -46,7 +49,20 @@ class SearchListView extends StatelessWidget {
                 itemBuilder: (_, i) {
                   var item = controller.list[i] as LiveAnchorItem;
 
-                  return ListTile(
+                  return GestureDetector(
+                    onSecondaryTap: () => openMiniWindow(
+                      FollowUser(
+                        id: '${controller.site.id}_${item.roomId}',
+                        roomId: item.roomId,
+                        siteId: controller.site.id,
+                        userName: item.userName,
+                        face: item.avatar,
+                        addTime: DateTime.now(),
+                      ),
+                      cascadeIndex: MiniPlayerManager.instance.nextIndex(),
+                      skipConfirm: true,
+                    ),
+                    child: ListTile(
                     leading: NetImage(
                       item.avatar,
                       width: 48,
@@ -80,6 +96,7 @@ class SearchListView extends StatelessWidget {
                       AppNavigator.toLiveRoomDetail(
                           site: controller.site, roomId: item.roomId);
                     },
+                  ),
                   );
                 },
               ),

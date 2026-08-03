@@ -84,8 +84,6 @@ Widget buildFullControls(
             },
           ),
         ),
-        if (controller.showDanmakuState.value)
-          buildDanmuView(videoState, controller),
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
@@ -112,6 +110,8 @@ Widget buildFullControls(
             ),
           ),
         ),
+        if (controller.showDanmakuState.value)
+          buildDanmuView(videoState, controller, topLayer: true),
 
         // 顶部
         Obx(
@@ -631,7 +631,7 @@ Widget buildControls(
   );
 }
 
-Widget buildDanmuView(VideoState videoState, LiveRoomController controller, {bool topLayer = false}) {
+Widget buildDanmuView(VideoState videoState, LiveRoomController controller, {bool topLayer = false, VoidCallback? onTap}) {
   var padding = MediaQuery.of(videoState.context).padding;
   if (controller.danmakuView == null) {
     controller.danmakuView = Listener(
@@ -692,7 +692,15 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller, {boo
       top: padding.top,
       bottom: 48.0 + padding.bottom,
       child: GestureDetector(
+        onTap: onTap,
         onDoubleTapDown: controller.onDoubleTap,
+        onLongPress: () {
+          if (controller.lockControlsState.value) return;
+          showFollowUser(controller);
+        },
+        onVerticalDragStart: controller.onVerticalDragStart,
+        onVerticalDragUpdate: controller.onVerticalDragUpdate,
+        onVerticalDragEnd: controller.onVerticalDragEnd,
         child: danmuContent,
       ),
     );

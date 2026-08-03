@@ -21,7 +21,7 @@
    Copy-Item -Force "$src\windows\app.so" "$dst\data\app.so"
    Copy-Item -Recurse -Force "$src\flutter_assets\*" "$dst\data\flutter_assets\"
    ```
-3. **验证**：`Get-Item "D:\simple_live\data\app.so"` 和 `Get-Item "$src\windows\app.so"` 的 `Length` + `LastWriteTime` 必须一致
+3. **验证**：   `Get-Item "D:\simple_live\data\app.so"` 和 `Get-Item "$src\windows\app.so"` 的 `Length` + `LastWriteTime` 必须一致
 4. 忽略警告：`flutter_inappwebview_windows/windows/CMakeLists.txt` 的 CMake DEPENDS 警告是正常的，不影响功能
 
 ## 环境
