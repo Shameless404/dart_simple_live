@@ -145,7 +145,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   bool _showMoreMenu = false;
   late double _danmuSize;
   late double _danmuSpeed;
-  double _savedDanmuSize = 8.0;
   double _volume = 0.0;  // 滑块自身状态（0.0-1.0），不是 player.state.volume 的副本
   double _lastVolume = 0.5;  // 静音前音量，用于恢复
   bool _hwdec = false;
@@ -319,14 +318,6 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
   Future<void> _toggleFullscreen() async {
     final isFullscreen = await windowManager.isFullScreen();
     _logVf('toggleFullscreen: was=$isFullscreen going=${!isFullscreen}');
-    if (!isFullscreen) {
-      _savedDanmuSize = _danmuSize;
-      _danmuSize = (widget.args.mainDanmuSize ?? _danmuSize).clamp(8.0, 50.0);
-      _applyDanmuOption();
-    } else {
-      _danmuSize = _savedDanmuSize;
-      _applyDanmuOption();
-    }
     await windowManager.setFullScreen(!isFullscreen);
     _isFullscreen = !isFullscreen;
     if (_isFullscreen) {
