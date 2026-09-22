@@ -174,3 +174,6 @@
   Remove-Item $zipPath
   ```
 - Token 在 `git remote -v` URL 中
+- **重要**：remote URL 里的 `ghp_...` token 已失效（API 401）。有效 token 存于 Windows 凭据管理器，动态获取（不要写死/存明文）：
+  - 读取：`"protocol=https`nhost=github.com`n" | git credential fill` → 输出里的 `password=` 就是 token
+  - 用法：`$token = ("protocol=https`nhost=github.com`n" | git credential fill | Select-String "password=") -replace "password=", ""`
