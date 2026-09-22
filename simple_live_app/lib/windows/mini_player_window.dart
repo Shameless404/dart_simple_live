@@ -20,6 +20,7 @@ class MiniPlayerArguments {
   final String streamUrl;
   final Map<String, String>? streamHeaders;
   final String bilibiliCookie;
+  final String douyuCookie;
   final double danmuSize;
   final double danmuSpeed;
   final double danmuArea;
@@ -39,6 +40,7 @@ class MiniPlayerArguments {
     required this.streamUrl,
     this.streamHeaders,
     required this.bilibiliCookie,
+    this.douyuCookie = '',
     required this.danmuSize,
     required this.danmuSpeed,
     required this.danmuArea,
@@ -59,6 +61,7 @@ class MiniPlayerArguments {
         'streamUrl': streamUrl,
         'streamHeaders': streamHeaders,
         'bilibiliCookie': bilibiliCookie,
+        'douyuCookie': douyuCookie,
         'danmuSize': danmuSize,
         'danmuSpeed': danmuSpeed,
         'danmuArea': danmuArea,
@@ -82,6 +85,7 @@ class MiniPlayerArguments {
             ? Map<String, String>.from(json['streamHeaders'] as Map)
             : null,
         bilibiliCookie: json['bilibiliCookie'] as String? ?? '',
+        douyuCookie: json['douyuCookie'] as String? ?? '',
         danmuSize: (json['danmuSize'] as num?)?.toDouble() ?? 14,
         danmuSpeed: (json['danmuSpeed'] as num?)?.toDouble() ?? 8,
         danmuArea: (json['danmuArea'] as num?)?.toDouble() ?? 0.3,
@@ -222,7 +226,11 @@ class _MiniPlayerPageState extends State<MiniPlayerPage> {
         }
         return site;
       case 'douyu':
-        return DouyuSite();
+        final site = DouyuSite();
+        if (widget.args.douyuCookie.isNotEmpty) {
+          site.cookie = widget.args.douyuCookie;
+        }
+        return site;
       case 'huya':
         return HuyaSite();
       default:

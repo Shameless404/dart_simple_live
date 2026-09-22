@@ -11,6 +11,7 @@ import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
+import 'package:simple_live_app/services/douyu_account_service.dart';
 import 'package:simple_live_app/services/mini_player_manager.dart';
 import 'package:simple_live_app/windows/mini_player_window.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -45,6 +46,11 @@ Future<void> openMiniWindow(FollowUser item,
   var bilibiliCookie = '';
   if (item.siteId == Constant.kBiliBili) {
     bilibiliCookie = BiliBiliAccountService.instance.cookie;
+  }
+
+  var douyuCookie = '';
+  if (item.siteId == Constant.kDouyu) {
+    douyuCookie = DouyuAccountService.instance.cookie;
   }
 
   var streamUrl = '';
@@ -116,6 +122,7 @@ Future<void> openMiniWindow(FollowUser item,
     streamUrl: streamUrl,
     streamHeaders: streamHeaders,
     bilibiliCookie: bilibiliCookie,
+    douyuCookie: douyuCookie,
     danmuSize: danmuSize,
     danmuSpeed: danmuSpeed,
     danmuArea: settings.danmuArea.value,

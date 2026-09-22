@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -26,26 +24,42 @@ class AppNavigator {
   /// 跳转至直播间
   static void toLiveRoomDetail(
       {required Site site, required String roomId}) async {
-    if (site.id == Constant.kBiliBili &&
-        !BiliBiliAccountService.instance.logined.value &&
-        AppSettingsController.instance.bilibiliLoginTip.value) {
-      var result = await Utils.showAlertDialog(
-        "哔哩哔哩需要登录才能观看高清直播，是否前往登录？",
-        title: "登录哔哩哔哩",
-        actions: [
-          TextButton(
-            onPressed: () {
-              AppSettingsController.instance.setBiliBiliLoginTip(false);
-              Get.back(result: false);
-            },
-            child: const Text("不再提示"),
-          ),
-        ],
-      );
-      if (result == true) {
-        await toBiliBiliLogin();
-        if (!BiliBiliAccountService.instance.logined.value) {
-          SmartDialog.showToast("未完成登录");
+    if (site.id == Constant.kBiliBili) {
+      var account = BiliBiliAccountService.instance;
+      if (account.logined.value) {
+        // 已登录：点进直播间时校验账号状态，异常则弹窗提示具体报错
+        var check = await account.loadUserInfo();
+        if (!check.isOk) {
+          var goLogin = await Utils.showAlertDialog(
+            "${check.message}，是否前往登录？",
+            title: "哔哩哔哩登录异常",
+            confirm: "前往登录",
+            cancel: "取消",
+          );
+          if (goLogin) {
+            await toBiliBiliLogin();
+          }
+        }
+      } else if (AppSettingsController.instance.bilibiliLoginTip.value) {
+        // 未登录
+        var result = await Utils.showAlertDialog(
+          "哔哩哔哩需要登录才能观看高清直播，是否前往登录？",
+          title: "登录哔哩哔哩",
+          actions: [
+            TextButton(
+              onPressed: () {
+                AppSettingsController.instance.setBiliBiliLoginTip(false);
+                Get.back(result: false);
+              },
+              child: const Text("不再提示"),
+            ),
+          ],
+        );
+        if (result == true) {
+          await toBiliBiliLogin();
+          if (!BiliBiliAccountService.instance.logined.value) {
+            SmartDialog.showToast("未完成登录");
+          }
         }
       }
     }
@@ -55,13 +69,9 @@ class AppNavigator {
     });
   }
 
-  /// 跳转至哔哩哔哩登录
+  /// 跳转至哔哩哔哩登录（应用内浏览器登录）
   static Future toBiliBiliLogin() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      await Get.toNamed(RoutePath.kBiliBiliWebLogin);
-    } else {
-      await Get.toNamed(RoutePath.kBiliBiliQRLogin);
-    }
+    await Get.toNamed(RoutePath.kBiliBiliWebLogin);
   }
 
   /// 跳转至同步设备

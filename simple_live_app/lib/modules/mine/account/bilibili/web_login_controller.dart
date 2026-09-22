@@ -39,9 +39,16 @@ class BiliBiliWebLoginController extends BaseController {
         return false;
       }
       var cookieStr = cookies.map((e) => "${e.name}=${e.value}").join(";");
+      // 先校验再保存：接口 code==0 才确认是真登录，假/过期 cookie 一律不入库
+      var check = await BiliBiliAccountService.instance
+          .validateCookie(cookieStr);
+      if (!check.isOk) {
+        Log.i("Bilibili web login: cookie invalid: ${check.message}");
+        return false;
+      }
       Log.i(cookieStr);
       BiliBiliAccountService.instance.setCookie(cookieStr);
-      await BiliBiliAccountService.instance.loadUserInfo();
+      await BiliBiliAccountService.instance.loadUserInfo(force: true);
       Get.back();
       return true;
     } catch (e) {

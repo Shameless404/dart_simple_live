@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
+import 'package:simple_live_core/src/common/core_error.dart';
 import 'package:simple_live_core/src/common/core_log.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
 import 'package:simple_live_core/src/danmaku/douyu_danmaku.dart';
@@ -17,14 +19,19 @@ import 'package:simple_live_core/src/model/live_room_detail.dart';
 import 'package:simple_live_core/src/model/live_play_quality.dart';
 import 'package:simple_live_core/src/model/live_category_result.dart';
 import 'package:html_unescape/html_unescape.dart';
-import 'package:simple_live_core/src/scripts/douyu_sign.dart';
 
 class DouyuSite implements LiveSite {
+  static const String _kUserAgent =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.43";
+
   @override
   String id = "douyu";
 
   @override
   String name = "斗鱼直播";
+
+  /// 用户登录 Cookie，用于解锁原画画质与 expire=0 播放地址
+  String cookie = "";
 
   @override
   LiveDanmaku getDanmaku() => DouyuDanmaku();
@@ -96,17 +103,10 @@ class DouyuSite implements LiveSite {
   Future<List<LivePlayQuality>> getPlayQualites({
     required LiveRoomDetail detail,
   }) async {
-    var data = detail.data.toString();
-    data += "&cdn=&rate=-1&ver=Douyu_223061205&iar=1&ive=1&hevc=0&fa=0";
-    List<LivePlayQuality> qualities = [];
-    var result = await HttpClient.instance.postJson(
-      "https://www.douyu.com/lapi/live/getH5Play/${detail.roomId}",
-      data: data,
-      formUrlEncoded: true,
-    );
+    var result = await _getH5PlayData(detail.roomId);
 
     var cdns = <String>[];
-    for (var item in result["data"]["cdnsWithName"]) {
+    for (var item in result["cdnsWithName"]) {
       cdns.add(item["cdn"].toString());
     }
 
@@ -120,7 +120,8 @@ class DouyuSite implements LiveSite {
       return 0;
     });
 
-    for (var item in result["data"]["multirates"]) {
+    List<LivePlayQuality> qualities = [];
+    for (var item in result["multirates"]) {
       qualities.add(
         LivePlayQuality(
           quality: item["name"].toString(),
@@ -136,38 +137,99 @@ class DouyuSite implements LiveSite {
     required LiveRoomDetail detail,
     required LivePlayQuality quality,
   }) async {
-    var args = detail.data.toString();
     var data = quality.data as DouyuPlayData;
 
     List<String> urls = [];
     for (var item in data.cdns) {
-      var url = await getPlayUrl(detail.roomId, args, data.rate, item);
+      var url = await getPlayUrl(detail.roomId, data.rate, item);
       if (url.isNotEmpty) {
         urls.add(url);
       }
     }
-    return LivePlayUrl(urls: urls);
+    var headers = <String, String>{
+      'referer': 'https://www.douyu.com/${detail.roomId}',
+      'user-agent': _kUserAgent,
+      'origin': 'https://www.douyu.com',
+    };
+    if (cookie.isNotEmpty) {
+      headers['cookie'] = cookie;
+    }
+    return LivePlayUrl(urls: urls, headers: headers);
   }
 
   Future<String> getPlayUrl(
     String roomId,
-    String args,
     int rate,
     String cdn,
   ) async {
-    args += "&cdn=$cdn&rate=$rate";
-    var result = await HttpClient.instance.postJson(
-      "https://www.douyu.com/lapi/live/getH5Play/$roomId",
-      data: args,
+    var result = await _getH5PlayData(roomId, rate: rate, cdn: cdn);
+
+    return "${result["rtmp_url"]}/${HtmlUnescape().convert(result["rtmp_live"].toString())}";
+  }
+
+  /// 斗鱼最新防盗链：
+  /// 1. websec/getEncryption 获取动态密钥（key/rand_str/enc_time/enc_data）
+  /// 2. 迭代 enc_time 次 MD5 计算 auth 签名
+  /// 3. getH5PlayV1 换取播放地址
+  Future<dynamic> _getH5PlayData(
+    String roomId, {
+    int rate = -1,
+    String cdn = "",
+  }) async {
+    var did = generateRandomString(32);
+    var requestCookie = cookie.isEmpty
+        ? 'dy_did=$did;acf_did=$did'
+        : '$cookie;dy_did=$did;acf_did=$did;';
+    var encResp = await HttpClient.instance.getJson(
+      "https://www.douyu.com/wgapi/livenc/liveweb/websec/getEncryption",
+      queryParameters: {
+        "did": did,
+      },
       header: {
         'referer': 'https://www.douyu.com/$roomId',
-        'user-agent':
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.43",
+        'user-agent': _kUserAgent,
+        'Cookie': requestCookie,
+      },
+    );
+    var encData = encResp["data"];
+    var secretKey = encData["key"].toString();
+    var randStr = encData["rand_str"].toString();
+    var encTime = (encData["enc_time"] as num?)?.toInt() ?? 1;
+    var encDataStr = encData["enc_data"].toString();
+
+    var tt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    var current = randStr;
+    for (var i = 0; i < encTime; i++) {
+      current = md5.convert(utf8.encode("$current$secretKey")).toString();
+    }
+    var auth =
+        md5.convert(utf8.encode("$current$secretKey$roomId$tt")).toString();
+
+    var result = await HttpClient.instance.postJson(
+      "https://www.douyu.com/lapi/live/getH5PlayV1/$roomId",
+      data: {
+        "enc_data": encDataStr,
+        "tt": "$tt",
+        "did": did,
+        "auth": auth,
+        "cdn": cdn,
+        "rate": "$rate",
+        "hevc": "0",
+        "fa": "0",
+        "ive": "0",
+      },
+      header: {
+        'referer': 'https://www.douyu.com/$roomId',
+        'user-agent': _kUserAgent,
+        'Cookie': requestCookie,
       },
       formUrlEncoded: true,
     );
 
-    return "${result["data"]["rtmp_url"]}/${HtmlUnescape().convert(result["data"]["rtmp_live"].toString())}";
+    if (result["error"] != 0) {
+      throw CoreError(result["msg"]?.toString() ?? "获取斗鱼播放地址失败");
+    }
+    return result["data"];
   }
 
   @override
@@ -210,17 +272,6 @@ class DouyuSite implements LiveSite {
     );
     String? showTime = h5RoomInfo["data"]?["show_time"]?.toString();
 
-    var jsEncResult = await HttpClient.instance.getText(
-      "https://www.douyu.com/swf_api/homeH5Enc?rids=$roomId",
-      queryParameters: {},
-      header: {
-        'referer': 'https://www.douyu.com/$roomId',
-        'user-agent':
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.43",
-      },
-    );
-    var crptext = json.decode(jsEncResult)["data"]["room$roomId"].toString();
-
     if (showTime != null && showTime.isNotEmpty) {
       try {
         int startTimeStamp = int.parse(showTime);
@@ -250,7 +301,7 @@ class DouyuSite implements LiveSite {
       notice: "",
       status: roomInfo["show_status"] == 1 && roomInfo["videoLoop"] != 1,
       danmakuData: roomInfo["room_id"].toString(),
-      data: DouyuSign.getSign(crptext, roomInfo["room_id"].toString()),
+      data: roomInfo["room_id"].toString(),
       url: "https://www.douyu.com/$roomId",
       isRecord: roomInfo["videoLoop"] == 1,
       showTime: showTime,

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -7,6 +5,7 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/douyin_account_service.dart';
+import 'package:simple_live_app/services/douyu_account_service.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
 class AccountController extends GetxController {
@@ -28,18 +27,15 @@ class AccountController extends GetxController {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Visibility(
-            visible: Platform.isAndroid || Platform.isIOS,
-            child: ListTile(
-              leading: const Icon(Icons.account_circle_outlined),
-              title: const Text("Web登录"),
-              subtitle: const Text("填写用户名密码登录"),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Get.back();
-                Get.toNamed(RoutePath.kBiliBiliWebLogin);
-              },
-            ),
+          ListTile(
+            leading: const Icon(Icons.account_circle_outlined),
+            title: const Text("Web登录"),
+            subtitle: const Text("在应用内浏览器登录"),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Get.back();
+              Get.toNamed(RoutePath.kBiliBiliWebLogin);
+            },
           ),
           ListTile(
             leading: const Icon(Icons.qr_code),
@@ -157,6 +153,71 @@ class AccountController extends GetxController {
                 }
                 DouyinAccountService.instance.setCookie(cookie);
                 SmartDialog.showToast("ttwid 已保存");
+              }
+            },
+            child: const Text("确定"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void douyuTap() async {
+    if (DouyuAccountService.instance.hasCookie.value) {
+      var result = await Utils.showAlertDialog("确定要清除斗鱼 Cookie 吗？", title: "清除 Cookie");
+      if (result) {
+        DouyuAccountService.instance.clearCookie();
+        SmartDialog.showToast("已清除斗鱼 Cookie");
+      }
+    } else {
+      doDouyuCookieConfig();
+    }
+  }
+
+  void doDouyuCookieConfig() {
+    var controller = TextEditingController(text: DouyuAccountService.instance.cookie);
+
+    Get.dialog(
+      AlertDialog(
+        title: const Text("配置斗鱼 Cookie"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "登录后可在浏览器 F12 → Network 中找到斗鱼 Cookie 并粘贴。\n"
+                "配置后可获取原画画质（默认仅 4M）。\n"
+                "Cookie 约 7 天后过期，届时需重新粘贴。",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  hintText: "请粘贴斗鱼 Cookie（留空则不使用登录态）",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text("取消"),
+          ),
+          TextButton(
+            onPressed: () {
+              var input = controller.text.trim();
+              Get.back();
+              if (input.isEmpty) {
+                DouyuAccountService.instance.clearCookie();
+                SmartDialog.showToast("已清除斗鱼 Cookie");
+              } else {
+                DouyuAccountService.instance.setCookie(input);
+                SmartDialog.showToast("斗鱼 Cookie 已保存");
               }
             },
             child: const Text("确定"),

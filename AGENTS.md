@@ -39,6 +39,7 @@
 
 ## Quick Reference
 - 虎牙坏了 → `huya_site.dart` 搜 `[虎牙参数]`（5 处）
+- 平台变糊/几分钟卡死 → 服务端对匿名请求降级 → 详见「匿名 vs 登录降级」；参考斗鱼 cookie 解法
 - 子窗口没声音 → `player.setVolume()` 传 0-100 不是 0-1
 - 构建失败 → 检查 env vars + Flutter SDK patches
 - 子进程卡死 → `detached` + `CoreLog.enableLog = false`
@@ -110,6 +111,30 @@
 ### vf 属性不可写
 `setProperty('vf',...)` / `command(['change-list','vf',...])` 在 Dart API 层全部无效果
 → 替代：`hwdec=no` + `framedrop=vo` + 最低画质
+
+### 平台更新后变糊+卡死 → 匿名 vs 登录降级
+
+**症状**：某个平台"昨天还好好的"，更新后 app 画质变糊 + 播放几分钟断流
+
+**先别死磕签名/参数**（本次斗鱼教训：先在错误签名上耗数小时，其实签名没错，是服务端锁定）：
+- 穷举请求 rate/hevc/cdn/did/浏览器头全无变化 → **服务端策略**，不是请求方式问题
+- 判别依据：
+  - 匿名降级：请求 `rate=0/8` 却返回 `rate=4` + `_4000.flv`/`_2000.flv`（流名后缀）+ `expire=300`（短 token）+ `token=web-h5-0-...`
+  - 登录态：无后缀原画流名 + `expire=0`（永不过期）+ `token=web-h5-<uid>-...`
+
+**诊断两步走**：
+1. 让用户浏览器登录后，F12 → Network 看同一接口的响应（流名后缀/expire/token 前缀），与 app 匿名结果对比
+2. 若确认登录态解锁 → 让用户贴 Cookie（或只贴响应），脚本带 Cookie 重测验证 → 再实现 cookie 登录
+
+**落地模板**（斗鱼已实现，其他平台照抄）：
+- Core Site 加 `cookie` 字段，`_getH5PlayData` 请求头带上；`getPlayUrls` 返回 referer/UA/origin headers（修 mpv 无头断流）
+- App 建 `*AccountService`（仿 `DouyuAccountService`/`BiliBiliAccountService`）+ 存储 key（仿 `kDouyuCookie`）+ 账号页粘贴/清除 UI
+- 子进程 mini player 透传 `douyuCookie`（仿 `bilibiliCookie`）
+
+**注意事项**：
+- cookie 约 7 天过期（`acf_jwt_token` exp=iat+7d），过期需重新粘贴；解锁需 `acf_jwt_token` + `acf_auth`/`dy_auth` 组合
+- 弹幕 WS 一般不受此影响，不用带 cookie
+- 验证脚本用 `python -` 管道 base64 方式跑（`@'...'@` + base64 + `| python -`，不要用 `python -c` 传参）
 
 ## Release
 - 版本永远 `v0.0.1`，ZIP: `simple_live_v0.0.1_windows-x64.zip`
